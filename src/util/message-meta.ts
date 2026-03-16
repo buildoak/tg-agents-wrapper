@@ -1,9 +1,35 @@
 import { type Context } from "grammy";
 import {
-  type InboundReplyContext,
   type InboundForwardInfo,
   type InboundMediaFlags,
+  type InboundReplyContext,
 } from "../bus/bus";
+
+interface TelegramReplyMessage {
+  message_id: number;
+  text?: string;
+  caption?: string;
+}
+
+interface TelegramForwardOrigin {
+  type: string;
+  chat?: { title?: string; username?: string };
+  sender_user?: { first_name?: string; last_name?: string };
+  sender_user_name?: string;
+}
+
+interface TelegramMessageMetaSource {
+  message_id: number;
+  date: number;
+  text?: string;
+  caption?: string;
+  reply_to_message?: TelegramReplyMessage;
+  forward_origin?: TelegramForwardOrigin;
+  voice?: unknown;
+  photo?: unknown;
+  document?: unknown;
+  media_group_id?: string;
+}
 
 export interface TelegramMessageMeta {
   messageId: number;
@@ -19,24 +45,18 @@ export interface TelegramMessageMeta {
 }
 
 export function extractMessageMeta(ctx: Context): TelegramMessageMeta | null {
-  const msg = ctx.message;
+  const msg = ctx.message as TelegramMessageMetaSource | undefined;
   if (!msg || !ctx.from?.id || !ctx.chat?.id) return null;
 
   const reply: InboundReplyContext | undefined = msg.reply_to_message
     ? {
         replyToMessageId: msg.reply_to_message.message_id,
-        replyToText: truncateReplyText(
-          (msg.reply_to_message as any).text as string ||
-          (msg.reply_to_message as any).caption as string ||
-          ""
-        ),
+        replyToText: truncateReplyText(msg.reply_to_message.text || msg.reply_to_message.caption || ""),
       }
     : undefined;
 
   const forward: InboundForwardInfo | undefined = (() => {
-    const origin = (msg as any).forward_origin as
-      | { type: string; chat?: { title?: string; username?: string }; sender_user?: { first_name?: string; last_name?: string }; sender_user_name?: string }
-      | undefined;
+    const origin = msg.forward_origin;
     if (!origin) return undefined;
     const type = origin.type;
     if (type === "channel") {
@@ -64,10 +84,10 @@ export function extractMessageMeta(ctx: Context): TelegramMessageMeta | null {
   })();
 
   const media: InboundMediaFlags = {
-    hasVoice: Boolean((msg as any).voice),
-    hasPhoto: Boolean((msg as any).photo),
-    hasDocument: Boolean((msg as any).document),
-    hasMediaGroup: Boolean((msg as any).media_group_id),
+    hasVoice: Boolean(msg.voice),
+    hasPhoto: Boolean(msg.photo),
+    hasDocument: Boolean(msg.document),
+    hasMediaGroup: Boolean(msg.media_group_id),
   };
 
   const replyWithText =
@@ -79,8 +99,8 @@ export function extractMessageMeta(ctx: Context): TelegramMessageMeta | null {
     chatId: ctx.chat.id,
     username: ctx.from.username || ctx.from.first_name,
     date: msg.date,
-    text: (msg as any).text as string | undefined,
-    caption: (msg as any).caption as string | undefined,
+    text: msg.text,
+    caption: msg.caption,
     reply: replyWithText,
     forward,
     media,

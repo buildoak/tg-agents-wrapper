@@ -2,7 +2,7 @@ import { Bot, InlineKeyboard } from "grammy";
 
 import { BufferManager } from "./buffer/message-buffer";
 import { MediaGroupCollector } from "./buffer/media-group";
-import { isAuthorized, DEFAULT_ENGINE } from "./config";
+import { BOT_NAME, DEFAULT_ENGINE, isAuthorized } from "./config";
 import { type EngineAdapter } from "./engine/interface";
 import { handleCallbackQuery } from "./handlers/callback";
 import { handleDocumentMessage } from "./handlers/document";
@@ -11,8 +11,7 @@ import { handleTextMessage } from "./handlers/text";
 import { handleVoiceMessage } from "./handlers/voice";
 import { abortUserQuery } from "./session/lifecycle";
 import { SessionStore } from "./session/store";
-import { type EngineType, type Session } from "./types";
-// wrapMessage no longer called in bot.ts; wrapping happens at flush time
+import { isReasoningEffort, REASONING_EFFORTS, type EngineType, type Session } from "./types";
 import { type OpenAITranscriptionClient } from "./voice/transcribe";
 import { type TTSRouterConfig } from "./voice/tts-router";
 
@@ -55,6 +54,9 @@ function getAdapter(engines: Record<EngineType, EngineAdapter>, engine: EngineTy
 
 export function createBot(deps: CreateBotDeps): CreatedBot {
   const bot = new Bot(deps.token);
+  bot.catch((error) => {
+    console.error("Bot handler error:", error.error);
+  });
 
   const bufferManager = new BufferManager({
     bot,
@@ -135,8 +137,7 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
 
     await deps.store.save();
 
-    const botName = process.env.BOT_NAME || "Bot";
-    await ctx.reply(`${botName} online. New session (${previousEngine || DEFAULT_ENGINE}).  Choose your mode:`, {
+    await ctx.reply(`${BOT_NAME} online. New session (${previousEngine || DEFAULT_ENGINE}).  Choose your mode:`, {
       reply_markup: modeKeyboard(),
     });
   });
@@ -369,19 +370,18 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
 
     const session = deps.store.get(userId);
     const arg = parseCommandArg(text, "effort").toLowerCase();
-    const valid = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
     if (!arg) {
-      await ctx.reply(`Current effort: ${session.reasoningEffort || "high"}\nUsage: /effort [${valid.join("|")}]`);
+      await ctx.reply(`Current effort: ${session.reasoningEffort || "high"}\nUsage: /effort [${REASONING_EFFORTS.join("|")}]`);
       return;
     }
 
-    if (!valid.includes(arg as any)) {
-      await ctx.reply(`Invalid effort. Choose: ${valid.join(", ")}`);
+    if (!isReasoningEffort(arg)) {
+      await ctx.reply(`Invalid effort. Choose: ${REASONING_EFFORTS.join(", ")}`);
       return;
     }
 
-    session.reasoningEffort = arg as Session["reasoningEffort"];
+    session.reasoningEffort = arg;
     deps.store.set(userId, session);
     await deps.store.save();
 

@@ -1,7 +1,9 @@
-import { type Bot, type Context } from "grammy";
+import { type Bot } from "grammy";
 
 import { BOT_TOKEN } from "../config";
 import { type VoiceMode } from "../types";
+
+type TelegramParseMode = "HTML" | "Markdown" | "MarkdownV2";
 
 export function getMimeType(filename: string): string {
   const ext = filename.toLowerCase().split(".").pop() || "";
@@ -26,6 +28,9 @@ export async function downloadTelegramFile(
 
   const url = `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
   const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Telegram file download failed with status ${response.status}`);
+  }
   const buffer = Buffer.from(await response.arrayBuffer());
   const filename = file.file_path.split("/").pop() || "image.jpg";
   return { buffer, filename };
@@ -78,58 +83,24 @@ export function wrapMessage(
   return `<${tag}${attrStr}>\n${inner}\n</${tag}>`;
 }
 
-export async function sendLongMessage(
-  _bot: Bot,
-  ctx: Context,
-  text: string,
-  maxLen = 4000,
-  parseMode?: string
-): Promise<void> {
-  const opts = parseMode ? { parse_mode: parseMode } : undefined;
-
-  if (text.length <= maxLen) {
-    await ctx.reply(text, opts as any);
-    return;
-  }
-
-  let remaining = text;
-  while (remaining.length > 0) {
-    if (remaining.length <= maxLen) {
-      await ctx.reply(remaining, opts as any);
-      break;
-    }
-
-    let splitAt = remaining.lastIndexOf("\n", maxLen);
-    if (splitAt < maxLen / 2) {
-      splitAt = remaining.lastIndexOf(" ", maxLen);
-    }
-    if (splitAt < maxLen / 2) {
-      splitAt = maxLen;
-    }
-
-    await ctx.reply(remaining.slice(0, splitAt), opts as any);
-    remaining = remaining.slice(splitAt).trim();
-  }
-}
-
 export async function sendLongMessageDirect(
   bot: Bot,
   chatId: number,
   text: string,
   maxLen = 4000,
-  parseMode?: string
+  parseMode?: TelegramParseMode
 ): Promise<void> {
   const opts = parseMode ? { parse_mode: parseMode } : undefined;
 
   if (text.length <= maxLen) {
-    await bot.api.sendMessage(chatId, text, opts as any);
+    await bot.api.sendMessage(chatId, text, opts);
     return;
   }
 
   let remaining = text;
   while (remaining.length > 0) {
     if (remaining.length <= maxLen) {
-      await bot.api.sendMessage(chatId, remaining, opts as any);
+      await bot.api.sendMessage(chatId, remaining, opts);
       break;
     }
 
@@ -141,7 +112,7 @@ export async function sendLongMessageDirect(
       splitAt = maxLen;
     }
 
-    await bot.api.sendMessage(chatId, remaining.slice(0, splitAt), opts as any);
+    await bot.api.sendMessage(chatId, remaining.slice(0, splitAt), opts);
     remaining = remaining.slice(splitAt).trim();
   }
 }

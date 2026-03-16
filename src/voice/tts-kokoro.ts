@@ -1,5 +1,6 @@
 import { existsSync, unlinkSync } from "fs";
 
+import { KOKORO_DEFAULT_VOICE, TEMP_DIR } from "../config";
 import { splitTextForTTS } from "./tts-elevenlabs";
 
 export interface KokoroConfig {
@@ -7,14 +8,15 @@ export interface KokoroConfig {
 }
 
 export async function kokoroTextToSpeech(text: string, config: KokoroConfig): Promise<Buffer[]> {
-  const voice = config.voice || "af_heart";
+  const voice = config.voice || KOKORO_DEFAULT_VOICE;
   const chunks = splitTextForTTS(text, 4000);
   const buffers: Buffer[] = [];
 
   for (const chunk of chunks) {
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const wavPath = `/tmp/tts_${id}.wav`;
-    const oggPath = `/tmp/tts_${id}.ogg`;
+    const filePrefix = `tts_${id}`;
+    const wavPath = `${TEMP_DIR}/${filePrefix}.wav`;
+    const oggPath = `${TEMP_DIR}/${filePrefix}.ogg`;
 
     try {
       // Generate WAV via mlx-audio
@@ -32,9 +34,9 @@ export async function kokoroTextToSpeech(text: string, config: KokoroConfig): Pr
           "--lang_code",
           "a",
           "--output_path",
-          "/tmp",
+          TEMP_DIR,
           "--file_prefix",
-          `tts_${id}`,
+          filePrefix,
           "--audio_format",
           "wav",
           "--join_audio",
@@ -50,7 +52,7 @@ export async function kokoroTextToSpeech(text: string, config: KokoroConfig): Pr
       }
 
       // The file might be tts_{id}_000.wav or tts_{id}.wav depending on join_audio
-      const actualWav = existsSync(wavPath) ? wavPath : `/tmp/tts_${id}_000.wav`;
+      const actualWav = existsSync(wavPath) ? wavPath : `${TEMP_DIR}/${filePrefix}_000.wav`;
 
       // Convert to OGG/Opus for Telegram
       const ffProc = Bun.spawn(

@@ -36,6 +36,14 @@ export class MediaGroupCollector {
     this.debounceMs = deps.debounceMs ?? 500;
   }
 
+  private scheduleProcessing(groupId: string): ReturnType<typeof setTimeout> {
+    return setTimeout(() => {
+      this.processMediaGroup(groupId).catch((error) => {
+        console.error(`Failed to process media group ${groupId}:`, error);
+      });
+    }, this.debounceMs);
+  }
+
   collect(groupId: string, input: MediaGroupItemInput): void {
     const existing = this.groups.get(groupId);
 
@@ -45,9 +53,7 @@ export class MediaGroupCollector {
         caption: input.caption,
         chatId: input.chatId,
         userId: input.userId,
-        timeout: setTimeout(() => {
-          void this.processMediaGroup(groupId);
-        }, this.debounceMs),
+        timeout: this.scheduleProcessing(groupId),
       };
 
       this.groups.set(groupId, state);
@@ -55,9 +61,7 @@ export class MediaGroupCollector {
     }
 
     clearTimeout(existing.timeout);
-    existing.timeout = setTimeout(() => {
-      void this.processMediaGroup(groupId);
-    }, this.debounceMs);
+    existing.timeout = this.scheduleProcessing(groupId);
 
     existing.images.push(input.image);
     if (input.caption && !existing.caption) {

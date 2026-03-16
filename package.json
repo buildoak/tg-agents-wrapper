@@ -4,6 +4,13 @@
   "description": "Telegram bot wrapping Claude and Codex AI engines with voice I/O, session management, and context monitoring",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/buildoak/tg-agents-wrapper.git"
+  },
+  "author": "Nick Oak",
+  "keywords": ["telegram", "bot", "claude", "codex", "ai", "voice"],
+  "homepage": "https://github.com/buildoak/tg-agents-wrapper",
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",

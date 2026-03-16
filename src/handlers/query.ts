@@ -296,11 +296,15 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
   let doneText = "";
   const sentChunks: string[] = [];
   const tempImagePaths: string[] = [];
+  const emptyPreparedImages: { engineImages: EngineImageInput[]; tempPaths: string[] } = {
+    engineImages: [],
+    tempPaths: [],
+  };
 
   try {
     const { engineImages, tempPaths } = images?.length
       ? await prepareEngineImages(userId, images)
-      : { engineImages: [] as EngineImageInput[], tempPaths: [] as string[] };
+      : emptyPreparedImages;
     tempImagePaths.push(...tempPaths);
 
     const queryConfig = {
@@ -315,9 +319,13 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
 
     for await (const event of adapter.query(queryConfig)) {
       lastEventTime = Date.now();
+      const committedSessionId = adapter.getSessionId();
+
+      if (committedSessionId && committedSessionId !== session.sessionId) {
+        session.sessionId = committedSessionId;
+      }
 
       if (event.type === "session.started") {
-        session.sessionId = event.sessionId;
         continue;
       }
 
@@ -461,9 +469,20 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
         await bot.api.sendMessage(chatId, "🛑 Query stopped.");
       }
     } else {
-      console.error("Query error:", error);
-      const message = error instanceof Error ? error.message : String(error);
-      await bot.api.sendMessage(chatId, `Error: ${message}`);
+      const errorLower = String(error).toLowerCase();
+      if (
+        errorLower.includes("no conversation found") ||
+        (errorLower.includes("session") && errorLower.includes("not found"))
+      ) {
+        session.sessionId = undefined;
+        store.set(userId, session);
+        await store.save();
+        await bot.api.sendMessage(chatId, "Session expired. Send a new message to start fresh.");
+      } else {
+        console.error("Query error:", error);
+        const message = error instanceof Error ? error.message : String(error);
+        await bot.api.sendMessage(chatId, `Error: ${message}`);
+      }
     }
   } finally {
     clearInterval(heartbeatInterval);

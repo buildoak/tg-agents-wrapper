@@ -13,6 +13,7 @@ import {
   type QueryConfig,
   type ToolCategory,
 } from "./interface";
+import { WET_PORT } from "../config";
 import { formatToolInput } from "../util/markdown";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -108,6 +109,7 @@ export class ClaudeAdapter implements EngineAdapter {
 
   private activeQuery?: ClaudeQuery;
   private currentSessionId?: string;
+  private pendingSessionId?: string;
   private readonly defaultModel: string;
   private readonly defaultWorkingDir: string;
 
@@ -122,6 +124,7 @@ export class ClaudeAdapter implements EngineAdapter {
 
   resume(sessionId: string): void {
     this.currentSessionId = sessionId;
+    this.pendingSessionId = undefined;
   }
 
   async interrupt(): Promise<boolean> {
@@ -151,11 +154,19 @@ export class ClaudeAdapter implements EngineAdapter {
     delete cleanEnv.CLAUDECODE;
     delete cleanEnv.DISABLE_AUTO_COMPACT;
 
+    // When wet proxy is available, route Claude API calls through it.
+    if (WET_PORT) {
+      cleanEnv.ANTHROPIC_BASE_URL = `http://localhost:${WET_PORT}/v1`;
+    }
+
     const pendingEvents: NormalizedEvent[] = [];
     const activeTools = new Map<string, string>();
     let toolCounter = 0;
     let fullText = "";
     let emittedSessionStarted = false;
+
+    this.currentSessionId = config.sessionId;
+    this.pendingSessionId = undefined;
 
     const flushPendingEvents = function* () {
       while (pendingEvents.length > 0) {
@@ -171,7 +182,7 @@ export class ClaudeAdapter implements EngineAdapter {
       const sessionId = extractSessionId(event);
 
       if (sessionId) {
-        this.currentSessionId = sessionId;
+        this.pendingSessionId = sessionId;
         if (!emittedSessionStarted) {
           emittedSessionStarted = true;
           normalized.push({
@@ -189,6 +200,11 @@ export class ClaudeAdapter implements EngineAdapter {
       const eventType = asString(event.type);
 
       if (eventType === "assistant") {
+        if (this.pendingSessionId) {
+          this.currentSessionId = this.pendingSessionId;
+          this.pendingSessionId = undefined;
+        }
+
         const message = getRecordValue(event, "message", isRecord);
         const content = message ? message.content : undefined;
 
@@ -328,6 +344,11 @@ export class ClaudeAdapter implements EngineAdapter {
         const subtype = asString(event.subtype);
         const isErrorResult = subtype ? subtype !== "success" : Boolean(event.is_error);
 
+        if (subtype === "success" && this.pendingSessionId) {
+          this.currentSessionId = this.pendingSessionId;
+          this.pendingSessionId = undefined;
+        }
+
         if (isErrorResult) {
           const errors = Array.isArray(event.errors) ? event.errors : [];
           const firstError = errors.find((value) => typeof value === "string");
@@ -374,7 +395,7 @@ export class ClaudeAdapter implements EngineAdapter {
         return prompt;
       }
 
-      return createImagePrompt(prompt, config.images, config.sessionId ?? this.currentSessionId);
+      return createImagePrompt(prompt, config.images, config.sessionId);
     };
 
     // Map our effort levels to Claude SDK effort levels
@@ -408,7 +429,7 @@ export class ClaudeAdapter implements EngineAdapter {
     };
 
     try {
-      let queryInstance = createQuery(config.sessionId ?? this.currentSessionId);
+      let queryInstance = createQuery(config.sessionId);
       this.activeQuery = queryInstance;
 
       let iterator = queryInstance[Symbol.asyncIterator]();
@@ -417,10 +438,11 @@ export class ClaudeAdapter implements EngineAdapter {
       try {
         firstResult = await iterator.next();
       } catch (error) {
-        const attemptedResume = config.sessionId ?? this.currentSessionId;
+        const attemptedResume = config.sessionId;
 
         if (attemptedResume && isStaleSessionError(error)) {
           this.currentSessionId = undefined;
+          this.pendingSessionId = undefined;
           pendingEvents.push({
             type: "error",
             message: "Session recovered - starting fresh.",
@@ -486,6 +508,7 @@ export class ClaudeAdapter implements EngineAdapter {
       };
     } finally {
       this.activeQuery = undefined;
+      this.pendingSessionId = undefined;
       config.abortSignal.removeEventListener("abort", onAbort);
     }
   }

@@ -31,6 +31,14 @@ export class BufferManager {
     return Boolean(buffer && buffer.messages.length > 0);
   }
 
+  private scheduleFlush(userId: number, delayMs: number): ReturnType<typeof setTimeout> {
+    return setTimeout(() => {
+      this.flushBuffer(userId).catch((error) => {
+        console.error(`Failed to flush buffered messages for user ${userId}:`, error);
+      });
+    }, delayMs);
+  }
+
   bufferMessage(userId: number, chatId: number, message: MessageBuffer["messages"][number], session: Session): void {
     let buffer = this.messageBuffers.get(userId);
     if (!buffer) {
@@ -44,15 +52,7 @@ export class BufferManager {
       clearTimeout(buffer.timeout);
     }
 
-    buffer.timeout = setTimeout(() => {
-      void this.flushBuffer(userId);
-    }, session.batchDelayMs);
-
-    console.log(
-      `Buffered message for user ${userId}, ${buffer.messages.length} pending, flushing in ${
-        session.batchDelayMs / 1000
-      }s`
-    );
+    buffer.timeout = this.scheduleFlush(userId, session.batchDelayMs);
   }
 
   async clearUserBuffers(userId: number): Promise<void> {
@@ -148,7 +148,7 @@ export class BufferManager {
   }
 
   async clearAll(): Promise<void> {
-    for (const [userId, buffer] of this.messageBuffers.entries()) {
+    for (const [, buffer] of this.messageBuffers.entries()) {
       if (buffer.timeout) {
         clearTimeout(buffer.timeout);
       }
@@ -160,8 +160,6 @@ export class BufferManager {
           // ignore status cleanup failures
         }
       }
-
-      console.log(`Clearing ${buffer.messages.length} buffered messages for user ${userId}`);
     }
 
     this.messageBuffers.clear();

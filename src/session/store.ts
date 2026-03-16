@@ -10,6 +10,7 @@ const DEFAULT_BATCH_DELAY_MS = 15_000;
 export class SessionStore {
   private readonly sessions = new Map<number, Session>();
   private readonly sessionFilePath: string;
+  private saveChain: Promise<void> = Promise.resolve();
 
   constructor(sessionFilePath: string = config.sessionFilePath) {
     this.sessionFilePath = sessionFilePath;
@@ -40,35 +41,46 @@ export class SessionStore {
     return this.sessions;
   }
 
-  async save(): Promise<void> {
-    try {
-      const data: Record<string, PersistedSession> = {};
+  private serializeSessions(): Record<string, PersistedSession> {
+    const data: Record<string, PersistedSession> = {};
 
-      for (const [userId, session] of this.sessions.entries()) {
-        if (!session.sessionId) {
-          continue;
-        }
-
-        data[userId] = {
-          sessionId: session.sessionId,
-          engine: session.engine,
-          lastActivity: session.lastActivity,
-          voiceMode: session.voiceMode,
-          voiceId: session.voiceId,
-          reasoningEffort: session.reasoningEffort,
-          showThinking: session.showThinking,
-          lastModelUsage: session.lastModelUsage,
-          totalCostUSD: session.totalCostUSD,
-          lastInputTokens: session.lastInputTokens,
-          cumulativeInputTokens: session.cumulativeInputTokens,
-          batchDelayMs: session.batchDelayMs,
-        };
+    for (const [userId, session] of this.sessions.entries()) {
+      if (!session.sessionId) {
+        continue;
       }
 
-      await Bun.write(this.sessionFilePath, JSON.stringify(data, null, 2));
-    } catch (error) {
-      console.error("Failed to save sessions:", error);
+      data[userId] = {
+        sessionId: session.sessionId,
+        engine: session.engine,
+        lastActivity: session.lastActivity,
+        voiceMode: session.voiceMode,
+        voiceId: session.voiceId,
+        reasoningEffort: session.reasoningEffort,
+        showThinking: session.showThinking,
+        lastModelUsage: session.lastModelUsage,
+        totalCostUSD: session.totalCostUSD,
+        lastInputTokens: session.lastInputTokens,
+        cumulativeInputTokens: session.cumulativeInputTokens,
+        batchDelayMs: session.batchDelayMs,
+      };
     }
+
+    return data;
+  }
+
+  async save(): Promise<void> {
+    const snapshot = this.serializeSessions();
+    this.saveChain = this.saveChain
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await Bun.write(this.sessionFilePath, JSON.stringify(snapshot, null, 2));
+        } catch (error) {
+          console.error("Failed to save sessions:", error);
+        }
+      });
+
+    await this.saveChain;
   }
 
   async load(): Promise<void> {
@@ -107,7 +119,6 @@ export class SessionStore {
         };
 
         this.sessions.set(userId, restored);
-        console.log(`Restored session for user ${userId}: ${persisted.sessionId.slice(0, 8)}...`);
       }
     } catch (error) {
       console.error("Failed to load sessions:", error);

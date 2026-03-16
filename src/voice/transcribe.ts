@@ -1,5 +1,7 @@
 import { createReadStream } from "fs";
 
+import { OPENAI_TRANSCRIPTION_MODEL } from "../config";
+
 export interface OpenAITranscriptionClient {
   audio: {
     transcriptions: {
@@ -19,7 +21,7 @@ export async function transcribeVoice(
 
   try {
     const transcript = await openaiClient.audio.transcriptions.create({
-      model: "whisper-1",
+      model: OPENAI_TRANSCRIPTION_MODEL,
       file: createReadStream(filePath),
     });
     return transcript.text;

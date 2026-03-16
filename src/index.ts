@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { createBot } from "./bot";
 import {
   ALLOWED_USERS,
+  BOT_NAME,
   BOT_TOKEN,
   CLAUDE_MODEL,
   CODEX_MODEL,
@@ -145,7 +146,11 @@ async function main(): Promise<void> {
 
     for (const adapter of Object.values(engines)) {
       if (adapter.dispose) {
-        await adapter.dispose();
+        try {
+          await adapter.dispose();
+        } catch (error) {
+          console.error(`Failed to dispose ${adapter.name} adapter:`, error);
+        }
       }
     }
 
@@ -155,20 +160,28 @@ async function main(): Promise<void> {
   };
 
   process.on("SIGINT", () => {
-    void gracefulShutdown("SIGINT");
+    gracefulShutdown("SIGINT").catch((error) => {
+      console.error("Shutdown error:", error);
+      process.exit(1);
+    });
   });
 
   process.on("SIGTERM", () => {
-    void gracefulShutdown("SIGTERM");
+    gracefulShutdown("SIGTERM").catch((error) => {
+      console.error("Shutdown error:", error);
+      process.exit(1);
+    });
   });
 
-  // Clean up old uploaded files on startup
-  cleanupOldFiles(DOCUMENT_FILES_DIR);
+  const cleanedFiles = cleanupOldFiles(DOCUMENT_FILES_DIR);
+  if (cleanedFiles > 0) {
+    console.log(`Cleaned up ${cleanedFiles} old uploaded files.`);
+  }
 
   bot.start({
     drop_pending_updates: true,
     onStart: () => {
-      console.log("Bot started, old updates dropped");
+      console.log(`${BOT_NAME} started, old updates dropped`);
     },
   });
 }

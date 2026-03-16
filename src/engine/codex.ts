@@ -26,12 +26,22 @@ type CodexAdapterConfig = CodexEngineConfig & {
 
 type CodexToolItem = CommandExecutionItem | FileChangeItem | McpToolCallItem | WebSearchItem;
 type CodexEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+type CodexClientOptions = NonNullable<ConstructorParameters<typeof Codex>[0]>;
 
 // Codex doesn't support "max" — map to "xhigh" (its highest level)
 function mapCodexEffort(effort?: string): CodexEffort | undefined {
-  if (!effort) return undefined;
-  if (effort === "max") return "xhigh";
-  return effort as CodexEffort;
+  switch (effort) {
+    case "minimal":
+    case "low":
+    case "medium":
+    case "high":
+    case "xhigh":
+      return effort;
+    case "max":
+      return "xhigh";
+    default:
+      return undefined;
+  }
 }
 
 function createUserInput(prompt: string, images?: QueryConfig["images"]): UserInput[] {
@@ -125,9 +135,12 @@ export class CodexAdapter implements EngineAdapter {
 
   constructor(config: CodexAdapterConfig) {
     // Pass parent env so subprocesses (gaal, agent-mux) inherit API keys.
-    const codexOpts: Record<string, unknown> = { env: { ...process.env } };
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    );
+    const codexOpts: CodexClientOptions = { env };
     if (config.apiKey) codexOpts.apiKey = config.apiKey;
-    this.codex = new Codex(codexOpts as ConstructorParameters<typeof Codex>[0]);
+    this.codex = new Codex(codexOpts);
 
     this.defaultModel = config.model;
     this.defaultWorkingDir = config.workingDir;
@@ -182,7 +195,6 @@ export class CodexAdapter implements EngineAdapter {
       }
 
       if (event.type === "turn.completed") {
-        console.log("[codex] turn.completed usage:", JSON.stringify(event.usage), "model:", model);
         const inputTokens = event.usage.input_tokens;
         const outputTokens = event.usage.output_tokens;
         const cachedInputTokens = event.usage.cached_input_tokens;

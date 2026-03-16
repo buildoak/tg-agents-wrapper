@@ -1,5 +1,15 @@
 export type EngineType = "claude" | "codex";
 export type VoiceMode = "off" | "cloud" | "local";
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export const REASONING_EFFORTS = [
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
 
 export interface ModelUsageEntry {
   inputTokens: number;
@@ -16,8 +26,6 @@ export interface ImageData {
   buffer: Buffer;
   mimeType: string;
 }
-
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface Session {
   engine: EngineType;
@@ -77,4 +85,8 @@ export function normalizeVoiceMode(
   if (value === "off" || value === "cloud" || value === "local") return value;
   if (value === "claude" || value === "codex") return "off";
   return "off";
+}
+
+export function isReasoningEffort(value: unknown): value is ReasoningEffort {
+  return typeof value === "string" && REASONING_EFFORTS.some((effort) => effort === value);
 }

@@ -46,7 +46,6 @@ export async function handleDocumentMessage(ctx: Context, deps: DocumentHandlerD
     const savedPath = `${deps.documentFilesDir}/${savedName}`;
 
     await Bun.write(savedPath, buffer);
-    console.log(`[document] Saved user file: ${savedPath}`);
 
     const caption = message?.caption?.trim();
     const prompt = `User sent a file: ${savedName} saved at ${savedPath}. Read and analyze it.${

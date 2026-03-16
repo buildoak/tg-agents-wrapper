@@ -1,3 +1,5 @@
+import { ELEVENLABS_MODEL_ID } from "../config";
+
 export interface ElevenLabsConfig {
   apiKey?: string;
   voiceId?: string | null;
@@ -58,7 +60,7 @@ export async function textToSpeech(text: string, config: ElevenLabsConfig): Prom
           },
           body: JSON.stringify({
             text: chunk,
-            model_id: config.modelId || "eleven_flash_v2_5",
+            model_id: config.modelId || ELEVENLABS_MODEL_ID,
             voice_settings: {
               stability: 0.5,
               similarity_boost: 0.75,

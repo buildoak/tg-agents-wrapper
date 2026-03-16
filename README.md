@@ -1,5 +1,7 @@
 # tg-agents-wrapper
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Telegram bot that wraps [Claude Code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview) (Agent SDK) and [OpenAI Codex](https://platform.openai.com/docs/guides/codex) into a conversational interface with voice I/O, message batching, session management, and context monitoring.
 
 Built with [Bun](https://bun.sh) and [grammY](https://grammy.dev).
@@ -16,15 +18,6 @@ Built with [Bun](https://bun.sh) and [grammY](https://grammy.dev).
 
 ## Quick Start
 
-```bash
-git clone https://github.com/buildoak/tg-agents-wrapper.git
-cd tg-agents-wrapper
-bun install
-cp .env.example .env
-# Fill in your API keys in .env
-bun run start
-```
-
 ### Prerequisites
 
 - [Bun](https://bun.sh) runtime
@@ -32,6 +25,24 @@ bun run start
 - [Anthropic API key](https://console.anthropic.com/) (for Claude engine)
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview) installed (the Claude adapter spawns it as a subprocess)
 - OpenAI API key (optional -- for Codex engine and Whisper voice transcription)
+
+### Installation & Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/buildoak/tg-agents-wrapper.git
+cd tg-agents-wrapper
+
+# Install dependencies
+bun install
+
+# Configure environment
+cp .env.example .env
+# Edit .env and fill in your API keys
+
+# Start the bot
+bun run start
+```
 
 ## Commands
 
@@ -85,6 +96,15 @@ Key modules:
 - `src/buffer/` -- message batching and media group collection
 - `src/voice/` -- transcription (Whisper) and TTS (ElevenLabs + Kokoro)
 
+## Voice I/O
+
+The bot supports dual TTS pipelines for voice output:
+
+- **ElevenLabs Cloud TTS** - High-quality cloud-based text-to-speech (requires API key)
+- **Kokoro Local TTS** - Local text-to-speech for privacy-focused setups (no API key required)
+
+Voice input is handled via OpenAI Whisper transcription.
+
 ## Configuration
 
 All configuration is via environment variables. See [`.env.example`](.env.example) for the full list.
@@ -97,10 +117,33 @@ All configuration is via environment variables. See [`.env.example`](.env.exampl
 | `OPENAI_API_KEY` | No | OpenAI API key (Codex engine + Whisper) |
 | `WORKING_DIR` | No | Working directory for AI engines (default: `./`) |
 | `DEFAULT_ENGINE` | No | Default engine: `claude` or `codex` (default: `claude`) |
+| `CLAUDE_MODEL` | No | Claude model to use (default: `claude-opus-4-6`) |
+| `CODEX_MODEL` | No | Codex model to use (default: `gpt-5.4`) |
+| `DEFAULT_REASONING_EFFORT` | No | Reasoning effort level: `minimal`/`low`/`medium`/`high`/`xhigh`/`max` (default: `high`) |
 | `BOT_NAME` | No | Display name in bot messages (default: `Bot`) |
 | `ELEVENLABS_API_KEY` | No | ElevenLabs API key for cloud TTS |
+| `ELEVENLABS_PUBLIC_OWNER_ID` | No | ElevenLabs public owner ID for shared voices |
+| `DEFAULT_ELEVENLABS_VOICE_ID` | No | ElevenLabs voice ID for TTS |
+| `ELEVENLABS_VOICE_NAME` | No | ElevenLabs voice name for display |
+| `DEFAULT_KOKORO_VOICE` | No | Kokoro voice ID (default: `af_heart`) |
+| `TG_SESSION_DIR` | No | Session storage directory (default: `/tmp/tg-agents-wrapper`) |
+| `TG_FILES_DIR` | No | File storage directory (default: `/tmp/tg-agents-wrapper-files`) |
 | `WET_PORT` | No | Port for [wet](https://github.com/anthropics/wet) context proxy |
+
+## Development
+
+```bash
+# Run in development mode with auto-reload
+bun run dev
+
+# Type check
+bun run check
+```
 
 ## License
 
 MIT
+
+## Author
+
+Nick Oak (buildoak)
