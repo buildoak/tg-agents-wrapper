@@ -1,0 +1,24 @@
+{
+  "name": "tg-agents-wrapper",
+  "version": "1.0.0",
+  "description": "Telegram bot wrapping Claude and Codex AI engines with voice I/O, session management, and context monitoring",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.76",
+    "@openai/codex-sdk": "^0.101.0",
+    "grammy": "^1.38.4",
+    "openai": "^4.77.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
