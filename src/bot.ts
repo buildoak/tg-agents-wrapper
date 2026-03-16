@@ -16,6 +16,15 @@ import { getWetStatus, isWetAvailable } from "./integrations/wet";
 import { type OpenAITranscriptionClient } from "./voice/transcribe";
 import { type TTSRouterConfig } from "./voice/tts-router";
 
+/** Map internal effort name to what the API actually receives */
+function displayEffort(effort?: string): string {
+  switch (effort) {
+    case "xhigh": return "max";
+    case "minimal": return "low";
+    default: return effort || "high";
+  }
+}
+
 export interface CreateBotDeps {
   token: string;
   store: SessionStore;
@@ -223,7 +232,7 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
 
     if (session) {
       status += `\nEngine: ${session.engine}`;
-      status += `\nEffort: ${session.reasoningEffort || "high"}`;
+      status += `\nEffort: ${displayEffort(session.reasoningEffort)}`;
       status += `\nMode: ${modeLabel(session.voiceMode)}`;
       status += `\nBatch delay: ${Math.round(session.batchDelayMs / 1000)}s`;
     }
@@ -409,7 +418,7 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
     const arg = parseCommandArg(text, "effort").toLowerCase();
 
     if (!arg) {
-      await ctx.reply(`Current effort: ${session.reasoningEffort || "high"}\nUsage: /effort [${REASONING_EFFORTS.join("|")}]`);
+      await ctx.reply(`Current effort: ${displayEffort(session.reasoningEffort)}\nUsage: /effort [${REASONING_EFFORTS.join("|")}]`);
       return;
     }
 
