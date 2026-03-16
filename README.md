@@ -12,6 +12,8 @@ Built with [Bun](https://bun.sh) and [grammY](https://grammy.dev).
 - **Voice I/O** -- Whisper transcription + dual TTS pipeline (ElevenLabs cloud or Kokoro local)
 - **Message batching** -- collects rapid-fire Telegram messages into a single prompt (configurable delay)
 - **Context monitoring** -- track token usage, cache stats, and context window fill via `/context`
+- **Wet proxy integration** -- routes Claude API calls through [wet](https://github.com/anthropics/wet) for context compression; automatic healthcheck every 30 s with silent fallback to direct Anthropic if wet is down; `/context` shows compression stats (items compressed, tokens saved)
+- **Session resilience** -- stale session UUID recovery: adapter buffers the new session ID until the first successful API response, then commits it; dead sessions are auto-cleared so the next query starts fresh without manual `/start`
 - **Session persistence** -- sessions survive bot restarts (JSON file)
 - **Photo and document support** -- send images and files directly to the AI
 - **Graceful shutdown** -- saves sessions and aborts running queries on SIGINT/SIGTERM
@@ -128,7 +130,7 @@ All configuration is via environment variables. See [`.env.example`](.env.exampl
 | `DEFAULT_KOKORO_VOICE` | No | Kokoro voice ID (default: `af_heart`) |
 | `TG_SESSION_DIR` | No | Session storage directory (default: `/tmp/tg-agents-wrapper`) |
 | `TG_FILES_DIR` | No | File storage directory (default: `/tmp/tg-agents-wrapper-files`) |
-| `WET_PORT` | No | Port for [wet](https://github.com/anthropics/wet) context proxy |
+| `WET_PORT` | No | Port for [wet](https://github.com/anthropics/wet) context compression proxy; enables `/context` compression stats and automatic healthcheck with fallback to direct API |
 
 ## Development
 
