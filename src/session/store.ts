@@ -106,7 +106,7 @@ export class SessionStore {
           wasInterruptedByNewMessage: false,
           voiceMode: normalizeVoiceMode(persisted.voiceMode),
           voiceId: persisted.voiceId || config.defaultVoiceId,
-          reasoningEffort: persisted.reasoningEffort,
+          reasoningEffort: persisted.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
           showThinking: persisted.showThinking ?? false,
           lastModelUsage: persisted.lastModelUsage,
           totalCostUSD: persisted.totalCostUSD || 0,
