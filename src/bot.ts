@@ -12,6 +12,7 @@ import { handleVoiceMessage } from "./handlers/voice";
 import { abortUserQuery } from "./session/lifecycle";
 import { SessionStore } from "./session/store";
 import { isReasoningEffort, REASONING_EFFORTS, type EngineType, type Session } from "./types";
+import { getWetStatus, isWetAvailable } from "./integrations/wet";
 import { type OpenAITranscriptionClient } from "./voice/transcribe";
 import { type TTSRouterConfig } from "./voice/tts-router";
 
@@ -42,6 +43,29 @@ function modeKeyboard(): InlineKeyboard {
     .text("Normal", "mode:normal")
     .text("Voice", "mode:cloud")
     .text("Voice Local", "mode:local");
+}
+
+async function formatWetStats(): Promise<string | null> {
+  if (!isWetAvailable()) return null;
+
+  const status = await getWetStatus();
+  if (!status) return null;
+
+  const ratio = status.items_total > 0
+    ? `${status.items_compressed}/${status.items_total}`
+    : "0/0";
+  const savedK = status.tokens_saved >= 1000
+    ? `${(status.tokens_saved / 1000).toFixed(1)}k`
+    : String(status.tokens_saved);
+  const pauseTag = status.paused ? " (paused)" : "";
+
+  return [
+    "",
+    `<b>Wet Proxy</b>${pauseTag}`,
+    `Compressed: ${ratio} items`,
+    `Tokens saved: ${savedK}`,
+    `Mode: ${status.mode}`,
+  ].join("\n");
 }
 
 function parseCommandArg(text: string, command: string): string {
@@ -214,16 +238,24 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
     if (!userId) return;
 
     const session = deps.store.getAll().get(userId);
+    const wetStats = await formatWetStats();
 
     if (!session?.sessionId) {
-      await ctx.reply("No active session. Send a message first.");
+      if (wetStats) {
+        await ctx.reply(`No active session.${wetStats}`, { parse_mode: "HTML" });
+      } else {
+        await ctx.reply("No active session. Send a message first.");
+      }
       return;
     }
 
     if (session.engine !== "claude") {
       const usage = session.lastModelUsage ? Object.values(session.lastModelUsage)[0] : null;
       if (!usage) {
-        await ctx.reply("No context data yet for current engine.");
+        const msg = wetStats
+          ? `No context data yet for current engine.${wetStats}`
+          : "No context data yet for current engine.";
+        await ctx.reply(msg, wetStats ? { parse_mode: "HTML" } : undefined);
         return;
       }
 
@@ -239,13 +271,17 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
         `Cost: $${session.totalCostUSD.toFixed(4)}`,
       ];
 
-      await ctx.reply(lines.join("\n"));
+      if (wetStats) lines.push(wetStats);
+      await ctx.reply(lines.join("\n"), wetStats ? { parse_mode: "HTML" } : undefined);
       return;
     }
 
     const usage = session.lastModelUsage ? Object.entries(session.lastModelUsage)[0] : null;
     if (!usage) {
-      await ctx.reply("No context data yet. Send a message first.");
+      const msg = wetStats
+        ? `No context data yet. Send a message first.${wetStats}`
+        : "No context data yet. Send a message first.";
+      await ctx.reply(msg, wetStats ? { parse_mode: "HTML" } : undefined);
       return;
     }
 
@@ -260,16 +296,17 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
     const cost = session.totalCostUSD || 0;
     const shortId = session.sessionId!.slice(0, 8);
 
-    await ctx.reply(
-      [
-        `Session: ${shortId}`,
-        `Model: ${model}`,
-        `Context: ${totalInput.toLocaleString()} / ${contextWindow.toLocaleString()} (${pct.toFixed(1)}%)`,
-        `Remaining: ${remaining.toLocaleString()} tokens`,
-        `Cache: ${u.cacheReadInputTokens.toLocaleString()} read / ${u.cacheCreationInputTokens.toLocaleString()} created`,
-        `Cost: $${cost.toFixed(4)}`,
-      ].join("\n")
-    );
+    const lines = [
+      `Session: ${shortId}`,
+      `Model: ${model}`,
+      `Context: ${totalInput.toLocaleString()} / ${contextWindow.toLocaleString()} (${pct.toFixed(1)}%)`,
+      `Remaining: ${remaining.toLocaleString()} tokens`,
+      `Cache: ${u.cacheReadInputTokens.toLocaleString()} read / ${u.cacheCreationInputTokens.toLocaleString()} created`,
+      `Cost: $${cost.toFixed(4)}`,
+    ];
+
+    if (wetStats) lines.push(wetStats);
+    await ctx.reply(lines.join("\n"), wetStats ? { parse_mode: "HTML" } : undefined);
   });
 
   bot.command("mode", async (ctx) => {

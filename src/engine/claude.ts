@@ -14,6 +14,7 @@ import {
   type ToolCategory,
 } from "./interface";
 import { WET_PORT } from "../config";
+import { isWetHealthy } from "../integrations/wet";
 import { formatToolInput } from "../util/markdown";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -154,9 +155,15 @@ export class ClaudeAdapter implements EngineAdapter {
     delete cleanEnv.CLAUDECODE;
     delete cleanEnv.DISABLE_AUTO_COMPACT;
 
-    // When wet proxy is available, route Claude API calls through it.
+    // When wet proxy is available AND healthy, route Claude API calls through it.
+    // Falls back to direct Anthropic if wet is down. Auto-recovers on next query.
     if (WET_PORT) {
-      cleanEnv.ANTHROPIC_BASE_URL = `http://localhost:${WET_PORT}/v1`;
+      const healthy = await isWetHealthy();
+      if (healthy) {
+        cleanEnv.ANTHROPIC_BASE_URL = `http://localhost:${WET_PORT}/v1`;
+      } else {
+        delete cleanEnv.ANTHROPIC_BASE_URL;
+      }
     }
 
     const pendingEvents: NormalizedEvent[] = [];

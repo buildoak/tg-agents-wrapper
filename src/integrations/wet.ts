@@ -85,6 +85,56 @@ export async function getWetStatus(): Promise<WetStatus | null> {
   return isWetStatus(data) ? data : null;
 }
 
+// --- Wet health check with cached state (used by Claude adapter for fallback routing) ---
+
+const HEALTH_CACHE_TTL_MS = 30_000;
+const HEALTH_CHECK_TIMEOUT_MS = 1_000;
+
+let wetHealthy = true;
+let lastHealthCheckTime = 0;
+let lastLoggedState: boolean | null = null;
+
+/**
+ * Returns true if wet proxy is healthy and should be used for routing.
+ * Result is cached for 30s. Never throws. If WET_PORT is not set, returns false.
+ */
+export async function isWetHealthy(): Promise<boolean> {
+  const port = process.env.WET_PORT?.trim();
+  if (!port) {
+    return false;
+  }
+
+  const now = Date.now();
+  if (now - lastHealthCheckTime < HEALTH_CACHE_TTL_MS) {
+    return wetHealthy;
+  }
+
+  try {
+    const response = await fetch(`http://localhost:${port}/_wet/status`, {
+      signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS),
+    });
+    wetHealthy = response.ok;
+  } catch {
+    wetHealthy = false;
+  }
+
+  lastHealthCheckTime = now;
+
+  // Log state transitions once
+  if (lastLoggedState !== wetHealthy) {
+    if (wetHealthy) {
+      if (lastLoggedState === false) {
+        console.log("[wet] proxy recovered — routing through wet");
+      }
+    } else {
+      console.warn("[wet] proxy unhealthy — routing direct to Anthropic");
+    }
+    lastLoggedState = wetHealthy;
+  }
+
+  return wetHealthy;
+}
+
 export async function getWetInspect(): Promise<WetInspectItem[] | null> {
   const data = await fetchWetJson("/_wet/inspect");
   if (!Array.isArray(data) || !data.every(isWetInspectItem)) {
