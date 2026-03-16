@@ -7,7 +7,58 @@ export interface KokoroConfig {
   voice?: string;
 }
 
+export interface KokoroAvailability {
+  available: boolean;
+  missing: string[];
+}
+
+let cachedAvailability: KokoroAvailability | null = null;
+
+export async function isKokoroAvailable(): Promise<KokoroAvailability> {
+  if (cachedAvailability) {
+    return cachedAvailability;
+  }
+
+  const missing: string[] = [];
+
+  // Check python3 mlx_audio
+  try {
+    const proc = Bun.spawn(["python3", "-c", "import mlx_audio"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      missing.push("python3 mlx-audio");
+    }
+  } catch {
+    missing.push("python3 mlx-audio");
+  }
+
+  // Check ffmpeg
+  try {
+    const proc = Bun.spawn(["ffmpeg", "-version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      missing.push("ffmpeg");
+    }
+  } catch {
+    missing.push("ffmpeg");
+  }
+
+  cachedAvailability = { available: missing.length === 0, missing };
+  return cachedAvailability;
+}
+
 export async function kokoroTextToSpeech(text: string, config: KokoroConfig): Promise<Buffer[]> {
+  const availability = await isKokoroAvailable();
+  if (!availability.available) {
+    return [];
+  }
+
   const voice = config.voice || KOKORO_DEFAULT_VOICE;
   const chunks = splitTextForTTS(text, 4000);
   const buffers: Buffer[] = [];

@@ -100,12 +100,19 @@ Key modules:
 
 ## Voice I/O
 
-The bot supports dual TTS pipelines for voice output:
+Voice input uses OpenAI Whisper for transcription. Voice output supports two TTS backends:
 
-- **ElevenLabs Cloud TTS** - High-quality cloud-based text-to-speech (requires API key)
-- **Kokoro Local TTS** - Local text-to-speech for privacy-focused setups (no API key required)
+- **ElevenLabs** (cloud) -- requires `ELEVENLABS_API_KEY` in `.env`
+- **Kokoro** (local, optional) -- on-device TTS via [MLX](https://github.com/ml-explore/mlx) on Apple Silicon, no API key needed
 
-Voice input is handled via OpenAI Whisper transcription.
+### Local TTS setup (Kokoro)
+
+```bash
+pip install mlx-audio    # MLX-based Kokoro model
+brew install ffmpeg       # WAV → OGG/Opus conversion
+```
+
+The bot auto-detects Kokoro availability at startup and logs the result. If Kokoro deps are missing, it falls back to ElevenLabs. Without either, TTS is disabled but the bot works fine for text.
 
 ## Configuration
 

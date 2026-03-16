@@ -28,6 +28,7 @@ import { SessionStore } from "./session/store";
 import { type EngineType } from "./types";
 import { cleanupOldFiles } from "./util/cleanup";
 import { initializeElevenLabs } from "./voice/tts-elevenlabs";
+import { isKokoroAvailable } from "./voice/tts-kokoro";
 
 async function main(): Promise<void> {
   console.log("Starting TG agents wrapper bot...");
@@ -86,6 +87,15 @@ async function main(): Promise<void> {
     sharedVoiceId: ELEVENLABS_SHARED_VOICE_ID,
     voiceName: ELEVENLABS_VOICE_NAME,
   });
+
+  const kokoro = await isKokoroAvailable();
+  if (kokoro.available) {
+    console.log("Kokoro TTS ready (local MLX)");
+  } else {
+    console.log(
+      `Kokoro TTS unavailable (missing: ${kokoro.missing.join(", ")}) — ElevenLabs only`
+    );
+  }
 
   const { bot, bufferManager } = createBot({
     token: BOT_TOKEN,
