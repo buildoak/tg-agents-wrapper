@@ -295,20 +295,26 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
     }
 
     const [model, u] = usage;
-    // Context fill = input_tokens + cache_read + cache_creation (all three additive).
-    // Claude API: input_tokens is ONLY non-cached tokens (after last cache breakpoint).
-    // All three occupy context window space.
-    const totalInput = u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens;
-    const contextWindow = u.contextWindow;
-    const pct = contextWindow > 0 ? (totalInput / contextWindow) * 100 : 0;
-    const remaining = contextWindow - totalInput;
     const cost = session.totalCostUSD || 0;
     const shortId = session.sessionId!.slice(0, 8);
+
+    // Prefer wet proxy for context measurement — it reports actual context window fill.
+    // SDK result event sums billing tokens across all subagent API calls, inflating the number.
+    const wetStatus = await getWetStatus();
+    const useWet = wetStatus !== null && wetStatus.context_window > 0;
+
+    const totalInput = useWet
+      ? wetStatus.latest_total_input_tokens
+      : u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens;
+    const contextWindow = useWet ? wetStatus.context_window : u.contextWindow;
+    const pct = contextWindow > 0 ? (totalInput / contextWindow) * 100 : 0;
+    const remaining = contextWindow - totalInput;
+    const source = useWet ? "(via wet proxy)" : "(via SDK — may include subagent tokens)";
 
     const lines = [
       `Session: ${shortId}`,
       `Model: ${model}`,
-      `Context: ${totalInput.toLocaleString()} / ${contextWindow.toLocaleString()} (${pct.toFixed(1)}%)`,
+      `Context: ${totalInput.toLocaleString()} / ${contextWindow.toLocaleString()} (${pct.toFixed(1)}%) ${source}`,
       `Remaining: ${remaining.toLocaleString()} tokens`,
       `Cache: ${u.cacheReadInputTokens.toLocaleString()} read / ${u.cacheCreationInputTokens.toLocaleString()} created`,
       `Cost: $${cost.toFixed(4)}`,
