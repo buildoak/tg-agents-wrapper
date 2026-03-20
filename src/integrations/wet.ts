@@ -169,7 +169,7 @@ export async function startWetServe(): Promise<string | null> {
   }
 
   try {
-    wetProcess = Bun.spawn(["wet", "serve", "--port", port, "--mode", "passthrough"], {
+    wetProcess = Bun.spawn(["/Users/otonashi/.local/bin/wet", "serve", "--port", port, "--mode", "passthrough"], {
       stdout: "inherit",
       stderr: "inherit",
       env: { ...process.env, WET_PORT: port },
