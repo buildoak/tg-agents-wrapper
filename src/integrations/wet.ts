@@ -161,7 +161,9 @@ export async function startWetServe(): Promise<string | null> {
     if (res.ok) {
       console.log(`[wet] external instance already running on port ${port}`);
       process.env.WET_PORT = port;
-      process.env.ANTHROPIC_BASE_URL = `http://localhost:${port}/v1`;
+      // Don't include /v1 — the Anthropic SDK already prepends /v1 to all API paths.
+      // Setting /v1 here would produce /v1/v1/messages → 404.
+      process.env.ANTHROPIC_BASE_URL = `http://localhost:${port}`;
       return port;
     }
   } catch {
@@ -182,9 +184,10 @@ export async function startWetServe(): Promise<string | null> {
       return null;
     }
 
-    // Set env vars so the Claude adapter and wet.ts pick them up
+    // Set env vars so the Claude adapter and wet.ts pick them up.
+    // Don't include /v1 — the Anthropic SDK already prepends /v1 to all API paths.
     process.env.WET_PORT = port;
-    process.env.ANTHROPIC_BASE_URL = `http://localhost:${port}/v1`;
+    process.env.ANTHROPIC_BASE_URL = `http://localhost:${port}`;
 
     console.log(`[wet] serve started on port ${port} (passthrough mode)`);
     return port;

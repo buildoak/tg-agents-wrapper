@@ -137,7 +137,9 @@ export class ClaudeAdapter implements EngineAdapter {
     if (wetPort) {
       const healthy = await isWetHealthy();
       if (healthy) {
-        cleanEnv.ANTHROPIC_BASE_URL = `http://localhost:${wetPort}/v1`;
+        // Don't include /v1 — the Anthropic SDK already prepends /v1 to all API paths.
+        // Including /v1 here would produce /v1/v1/messages → 404 → "issue with selected model".
+        cleanEnv.ANTHROPIC_BASE_URL = `http://localhost:${wetPort}`;
       } else {
         delete cleanEnv.ANTHROPIC_BASE_URL;
       }
