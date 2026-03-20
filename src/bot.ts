@@ -12,7 +12,7 @@ import { handleVoiceMessage } from "./handlers/voice";
 import { abortUserQuery } from "./session/lifecycle";
 import { SessionStore } from "./session/store";
 import { isReasoningEffort, REASONING_EFFORTS, type EngineType, type Session } from "./types";
-import { getWetStatus, isWetAvailable } from "./integrations/wet";
+import { getWetStatus, isWetAvailable, killWetProcess, restartWetServe } from "./integrations/wet";
 import { type OpenAITranscriptionClient } from "./voice/transcribe";
 import { type TTSRouterConfig } from "./voice/tts-router";
 
@@ -161,14 +161,20 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
     deps.store.delete(userId);
 
     // Preserve engine and effort choices across /start
+    const fresh = deps.store.get(userId);
     if (previousEngine) {
-      const fresh = deps.store.get(userId);
       fresh.engine = previousEngine;
       if (previousEffort) fresh.reasoningEffort = previousEffort;
-      deps.store.set(userId, fresh);
     }
+    // Reset wet context tracking for the new session
+    fresh.wetContextTokens = 0;
+    fresh.wetContextWindow = 0;
+    deps.store.set(userId, fresh);
 
     await deps.store.save();
+
+    // Restart wet proxy so the new session gets a clean context tracker
+    await restartWetServe();
 
     await ctx.reply(`${BOT_NAME} online. New session (${previousEngine || DEFAULT_ENGINE}).  Choose your mode:`, {
       reply_markup: modeKeyboard(),
@@ -187,6 +193,9 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
     await bufferManager.clearUserBuffers(userId);
     deps.store.delete(userId);
     await deps.store.save();
+
+    // Kill wet proxy — it tracks context per session, stale after /stop
+    killWetProcess();
 
     await ctx.reply("Session stopped. Any running query was aborted.");
   });

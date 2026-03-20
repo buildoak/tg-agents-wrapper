@@ -1,3 +1,5 @@
+import { type Subprocess } from "bun";
+
 export interface WetStatus {
   api_input_tokens: number;
   context_window: number;
@@ -115,4 +117,106 @@ export async function getWetInspect(): Promise<WetInspectItem[] | null> {
   }
 
   return data;
+}
+
+// ─── Wet process lifecycle (used by index.ts and bot.ts) ─────────────
+
+const DEFAULT_WET_PORT = "3456";
+
+function resolveWetPort(): string {
+  return process.env.WET_PORT?.trim() || DEFAULT_WET_PORT;
+}
+
+async function waitForWetReady(port: string, timeoutMs = 5000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://localhost:${port}/_wet/status`, {
+        signal: AbortSignal.timeout(500),
+      });
+      if (res.ok) return true;
+    } catch {
+      // not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
+let wetProcess: Subprocess | null = null;
+
+/**
+ * Start the wet serve proxy process.
+ * Returns the port string on success, null on failure.
+ * Safe to call multiple times — detects external instances and reuses them.
+ */
+export async function startWetServe(): Promise<string | null> {
+  const port = resolveWetPort();
+
+  // Check if wet is already running on this port (external instance)
+  try {
+    const res = await fetch(`http://localhost:${port}/_wet/status`, {
+      signal: AbortSignal.timeout(1000),
+    });
+    if (res.ok) {
+      console.log(`[wet] external instance already running on port ${port}`);
+      process.env.WET_PORT = port;
+      process.env.ANTHROPIC_BASE_URL = `http://localhost:${port}/v1`;
+      return port;
+    }
+  } catch {
+    // Not running — we'll start it
+  }
+
+  try {
+    wetProcess = Bun.spawn(["wet", "serve", "--port", port, "--mode", "passthrough"], {
+      stdout: "inherit",
+      stderr: "inherit",
+      env: { ...process.env, WET_PORT: port },
+    });
+
+    const ready = await waitForWetReady(port);
+    if (!ready) {
+      console.warn("[wet] serve did not become ready in time — continuing without wet");
+      killWetProcess();
+      return null;
+    }
+
+    // Set env vars so the Claude adapter and wet.ts pick them up
+    process.env.WET_PORT = port;
+    process.env.ANTHROPIC_BASE_URL = `http://localhost:${port}/v1`;
+
+    console.log(`[wet] serve started on port ${port} (passthrough mode)`);
+    return port;
+  } catch (error) {
+    console.warn(`[wet] failed to start serve: ${error} — continuing without wet`);
+    return null;
+  }
+}
+
+/**
+ * Kill the managed wet serve child process. No-op if no managed process exists.
+ */
+export function killWetProcess(): void {
+  if (wetProcess) {
+    try {
+      wetProcess.kill();
+    } catch {
+      // already dead
+    }
+    wetProcess = null;
+  }
+}
+
+/**
+ * Kill the current wet proxy and spawn a fresh one.
+ * Used on /start to get a clean context tracker for the new session.
+ * Returns the port on success, null on failure.
+ */
+export async function restartWetServe(): Promise<string | null> {
+  killWetProcess();
+  // Clear env so startWetServe doesn't think an external instance is running
+  // from the old managed process (which we just killed)
+  delete process.env.ANTHROPIC_BASE_URL;
+  return startWetServe();
 }
