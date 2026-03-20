@@ -61,6 +61,8 @@ export class SessionStore {
         totalCostUSD: session.totalCostUSD,
         lastInputTokens: session.lastInputTokens,
         cumulativeInputTokens: session.cumulativeInputTokens,
+        wetContextTokens: session.wetContextTokens,
+        wetContextWindow: session.wetContextWindow,
         batchDelayMs: session.batchDelayMs,
       };
     }
@@ -113,6 +115,8 @@ export class SessionStore {
           lastInputTokens: persisted.lastInputTokens || 0,
           cumulativeInputTokens:
             persisted.cumulativeInputTokens ?? persisted.lastInputTokens ?? 0,
+          wetContextTokens: persisted.wetContextTokens ?? 0,
+          wetContextWindow: persisted.wetContextWindow ?? 0,
           batchDelayMs: persisted.batchDelayMs ?? DEFAULT_BATCH_DELAY_MS,
           isResetting: false,
           isQueryActive: false,
@@ -137,6 +141,8 @@ export class SessionStore {
       totalCostUSD: 0,
       lastInputTokens: 0,
       cumulativeInputTokens: 0,
+      wetContextTokens: 0,
+      wetContextWindow: 0,
       batchDelayMs: DEFAULT_BATCH_DELAY_MS,
       isResetting: false,
       isQueryActive: false,

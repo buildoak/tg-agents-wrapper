@@ -34,7 +34,7 @@ export const DEFAULT_REASONING_EFFORT: ReasoningEffort =
     : "high";
 
 export const CODEX_MODEL = process.env.CODEX_MODEL || "gpt-5.4";
-export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-opus-4-6";
+export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-opus-4-6[1m]";
 export const WET_PORT = process.env.WET_PORT || "";
 
 for (const dir of [TEMP_DIR, DOCUMENT_FILES_DIR]) {

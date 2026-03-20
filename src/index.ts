@@ -1,3 +1,4 @@
+import { type Subprocess } from "bun";
 import OpenAI from "openai";
 
 import { createBot } from "./bot";
@@ -18,6 +19,7 @@ import {
   KOKORO_DEFAULT_VOICE,
   OPENAI_API_KEY,
   SESSION_FILE,
+  WET_PORT,
   WORKING_DIR,
 } from "./config";
 import { ClaudeAdapter } from "./engine/claude";
@@ -30,6 +32,87 @@ import { cleanupOldFiles } from "./util/cleanup";
 import { initializeElevenLabs } from "./voice/tts-elevenlabs";
 import { isKokoroAvailable } from "./voice/tts-kokoro";
 
+// ─── Managed wet serve process ────────────────────────────────
+
+const DEFAULT_WET_PORT = "3456";
+
+function resolveWetPort(): string {
+  return WET_PORT || DEFAULT_WET_PORT;
+}
+
+async function waitForWetReady(port: string, timeoutMs = 5000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://localhost:${port}/_wet/status`, {
+        signal: AbortSignal.timeout(500),
+      });
+      if (res.ok) return true;
+    } catch {
+      // not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
+let wetProcess: Subprocess | null = null;
+
+async function startWetServe(): Promise<string | null> {
+  const port = resolveWetPort();
+
+  // Check if wet is already running on this port (external instance)
+  try {
+    const res = await fetch(`http://localhost:${port}/_wet/status`, {
+      signal: AbortSignal.timeout(1000),
+    });
+    if (res.ok) {
+      console.log(`[wet] external instance already running on port ${port}`);
+      process.env.WET_PORT = port;
+      process.env.ANTHROPIC_BASE_URL = `http://localhost:${port}/v1`;
+      return port;
+    }
+  } catch {
+    // Not running — we'll start it
+  }
+
+  try {
+    wetProcess = Bun.spawn(["wet", "serve", "--port", port, "--mode", "passthrough"], {
+      stdout: "inherit",
+      stderr: "inherit",
+      env: { ...process.env, WET_PORT: port },
+    });
+
+    const ready = await waitForWetReady(port);
+    if (!ready) {
+      console.warn("[wet] serve did not become ready in time — continuing without wet");
+      killWetProcess();
+      return null;
+    }
+
+    // Set env vars so the Claude adapter and wet.ts pick them up
+    process.env.WET_PORT = port;
+    process.env.ANTHROPIC_BASE_URL = `http://localhost:${port}/v1`;
+
+    console.log(`[wet] serve started on port ${port} (passthrough mode)`);
+    return port;
+  } catch (error) {
+    console.warn(`[wet] failed to start serve: ${error} — continuing without wet`);
+    return null;
+  }
+}
+
+function killWetProcess(): void {
+  if (wetProcess) {
+    try {
+      wetProcess.kill();
+    } catch {
+      // already dead
+    }
+    wetProcess = null;
+  }
+}
+
 async function main(): Promise<void> {
   console.log("Starting TG agents wrapper bot...");
   console.log(`Working directory: ${WORKING_DIR}`);
@@ -39,6 +122,9 @@ async function main(): Promise<void> {
   console.log(`Codex model: ${CODEX_MODEL}`);
   console.log(`Default engine: ${DEFAULT_ENGINE}`);
   console.log(`Default reasoning effort: ${DEFAULT_REASONING_EFFORT}`);
+
+  // Start managed wet serve process for accurate context tracking
+  await startWetServe();
 
   const sessionStore = new SessionStore(SESSION_FILE);
   await sessionStore.load();
@@ -163,6 +249,8 @@ async function main(): Promise<void> {
         }
       }
     }
+
+    killWetProcess();
 
     await new Promise((resolve) => setTimeout(resolve, 2_000));
     console.log("Shutdown complete.");

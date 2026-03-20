@@ -51,6 +51,11 @@ export interface Session {
   lastInputTokens: number;
   cumulativeInputTokens: number;
 
+  /** Context tokens from wet proxy (accurate, excludes subagent calls) */
+  wetContextTokens: number;
+  /** Context window size from wet proxy */
+  wetContextWindow: number;
+
   batchDelayMs: number;
 }
 
@@ -73,6 +78,8 @@ export interface PersistedSession {
   totalCostUSD?: number;
   lastInputTokens?: number;
   cumulativeInputTokens?: number;
+  wetContextTokens?: number;
+  wetContextWindow?: number;
   batchDelayMs?: number;
 }
 

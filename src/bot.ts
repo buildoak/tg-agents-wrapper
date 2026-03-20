@@ -298,18 +298,30 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
     const cost = session.totalCostUSD || 0;
     const shortId = session.sessionId!.slice(0, 8);
 
-    // Prefer wet proxy for context measurement — it reports actual context window fill.
-    // SDK result event sums billing tokens across all subagent API calls, inflating the number.
-    const wetStatus = await getWetStatus();
-    const useWet = wetStatus !== null && wetStatus.context_window > 0;
+    // Prefer wet proxy values stored on session (accurate, excludes subagent API calls).
+    // Fall back to live wet query, then SDK values.
+    const useSessionWet = session.wetContextWindow > 0 && session.wetContextTokens > 0;
+    let totalInput: number;
+    let contextWindow: number;
+    let source: string;
 
-    const totalInput = useWet
-      ? wetStatus.latest_total_input_tokens
-      : u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens;
-    const contextWindow = useWet ? wetStatus.context_window : u.contextWindow;
+    if (useSessionWet) {
+      totalInput = session.wetContextTokens;
+      contextWindow = session.wetContextWindow;
+      source = "(via wet proxy)";
+    } else {
+      // Try live wet status as fallback
+      const wetStatus = await getWetStatus();
+      const useWet = wetStatus !== null && wetStatus.context_window > 0;
+      totalInput = useWet
+        ? wetStatus.latest_total_input_tokens
+        : u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens;
+      contextWindow = useWet ? wetStatus.context_window : u.contextWindow;
+      source = useWet ? "(via wet proxy)" : "(via SDK — may include subagent tokens)";
+    }
+
     const pct = contextWindow > 0 ? (totalInput / contextWindow) * 100 : 0;
     const remaining = contextWindow - totalInput;
-    const source = useWet ? "(via wet proxy)" : "(via SDK — may include subagent tokens)";
 
     const lines = [
       `Session: ${shortId}`,

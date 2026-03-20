@@ -20,6 +20,12 @@ export interface UsageForPricing {
 }
 
 export const MODEL_PRICING: Record<string, ModelPricing> = {
+  "claude-opus-4-6[1m]": {
+    inputPer1M: 15,
+    outputPer1M: 75,
+    cachedInputPer1M: 1.875,
+    cacheCreationPer1M: 18.75,
+  },
   "claude-opus-4-6": {
     inputPer1M: 15,
     outputPer1M: 75,
@@ -53,7 +59,8 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
 };
 
 export const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
-  "claude-opus-4-6": 1000000,
+  "claude-opus-4-6[1m]": 1000000,
+  "claude-opus-4-6": 200000,
   "claude-sonnet-4-6": 1000000,
   "codex-1": 192000,
   "gpt-4.1": 1000000,

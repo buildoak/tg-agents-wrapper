@@ -13,7 +13,6 @@ import {
   type QueryConfig,
   type ToolCategory,
 } from "./interface";
-import { WET_PORT } from "../config";
 import { isWetHealthy } from "../integrations/wet";
 import { formatToolInput } from "../util/markdown";
 
@@ -157,10 +156,12 @@ export class ClaudeAdapter implements EngineAdapter {
 
     // When wet proxy is available AND healthy, route Claude API calls through it.
     // Falls back to direct Anthropic if wet is down. Auto-recovers on next query.
-    if (WET_PORT) {
+    // Use process.env at runtime (not the imported constant) since startWetServe() sets it dynamically.
+    const wetPort = process.env.WET_PORT?.trim();
+    if (wetPort) {
       const healthy = await isWetHealthy();
       if (healthy) {
-        cleanEnv.ANTHROPIC_BASE_URL = `http://localhost:${WET_PORT}/v1`;
+        cleanEnv.ANTHROPIC_BASE_URL = `http://localhost:${wetPort}/v1`;
       } else {
         delete cleanEnv.ANTHROPIC_BASE_URL;
       }
@@ -330,9 +331,10 @@ export class ClaudeAdapter implements EngineAdapter {
           asNumber(usage.cache_creation_input_tokens) ??
           asNumber(firstUsage?.cacheCreationInputTokens) ??
           0;
-        // Claude SDK may report stale context window (200k instead of 1M for Opus 4.6).
-        // Let pricing.ts handle it via getContextWindow() fallback in updateUsageInSession.
-        const contextWindowSize = null;
+        // Context window from SDK can be stale (200k instead of 1M for [1m] variant).
+        // Prefer wet proxy value (set post-query), fall back to pricing.ts via getContextWindow().
+        const sdkContextWindow = asNumber(firstUsage?.contextWindow) ?? null;
+        const contextWindowSize = sdkContextWindow;
         const costUSD =
           asNumber(event.total_cost_usd) ?? asNumber(firstUsage?.costUSD) ?? null;
 

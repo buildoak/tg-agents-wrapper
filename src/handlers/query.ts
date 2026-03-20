@@ -5,10 +5,11 @@ import { InputFile, type Bot } from "grammy";
 import { TEMP_DIR } from "../config";
 import { type EngineAdapter, type EngineImageInput, type ToolCategory, type UsageEvent } from "../engine/interface";
 import { calculateCost, getContextWindow } from "../engine/pricing";
-import { handleContextWarning } from "../session/context-monitor";
+import { checkContextThresholds, handleContextWarning } from "../session/context-monitor";
 import { consumeInterruptFlag } from "../session/lifecycle";
 import { SessionStore } from "../session/store";
 import { type ImageData, type Session } from "../types";
+import { getWetStatus } from "../integrations/wet";
 import { sendFilesToUser } from "../util/files";
 import { markdownToTelegramHTML, stripMarkdown } from "../util/markdown";
 import { sendLongMessageDirect } from "../util/telegram";
@@ -491,6 +492,22 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
     session.lastActivity = Date.now();
     session.abortController = undefined;
     session.isQueryActive = false;
+
+    // Fetch accurate context fill from wet proxy (excludes subagent API calls)
+    if (session.engine === "claude") {
+      try {
+        const wetStatus = await getWetStatus();
+        if (wetStatus && wetStatus.context_window > 0) {
+          session.wetContextTokens = wetStatus.latest_total_input_tokens;
+          session.wetContextWindow = wetStatus.context_window;
+        }
+      } catch {
+        // best-effort — wet may not be available
+      }
+
+      // Check context thresholds and warn user if needed
+      await checkContextThresholds(session, store, chatId, bot);
+    }
 
     store.set(userId, session);
     await store.save();
