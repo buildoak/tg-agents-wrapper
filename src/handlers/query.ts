@@ -1,5 +1,3 @@
-import { unlinkSync } from "fs";
-
 import { InputFile, type Bot } from "grammy";
 
 import { TEMP_DIR } from "../config";
@@ -85,9 +83,7 @@ function mimeTypeToExtension(mimeType: string): string {
 
 async function prepareEngineImages(userId: number, images: ImageData[]): Promise<{
   engineImages: EngineImageInput[];
-  tempPaths: string[];
 }> {
-  const tempPaths: string[] = [];
   const engineImages: EngineImageInput[] = [];
   const stamp = Date.now();
 
@@ -99,25 +95,13 @@ async function prepareEngineImages(userId: number, images: ImageData[]): Promise
     const filePath = `${TEMP_DIR}/img_${userId}_${stamp}_${index}.${extension}`;
     await Bun.write(filePath, image.buffer);
 
-    tempPaths.push(filePath);
     engineImages.push({
       filePath,
       mimeType: image.mimeType,
-      base64Data: image.buffer.toString("base64"),
     });
   }
 
-  return { engineImages, tempPaths };
-}
-
-function cleanupTempFiles(paths: string[]): void {
-  for (const path of paths) {
-    try {
-      unlinkSync(path);
-    } catch {
-      // best-effort cleanup
-    }
-  }
+  return { engineImages };
 }
 
 function buildTaskNotification(taskId: string, status: "completed" | "failed" | "stopped" | "started", summary?: string): string {
@@ -296,17 +280,11 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
   let previousTextDone = "";
   let doneText = "";
   const sentChunks: string[] = [];
-  const tempImagePaths: string[] = [];
-  const emptyPreparedImages: { engineImages: EngineImageInput[]; tempPaths: string[] } = {
-    engineImages: [],
-    tempPaths: [],
-  };
 
   try {
-    const { engineImages, tempPaths } = images?.length
+    const { engineImages } = images?.length
       ? await prepareEngineImages(userId, images)
-      : emptyPreparedImages;
-    tempImagePaths.push(...tempPaths);
+      : { engineImages: [] as EngineImageInput[] };
 
     const queryConfig = {
       prompt,
@@ -487,7 +465,6 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
     }
   } finally {
     clearInterval(heartbeatInterval);
-    cleanupTempFiles(tempImagePaths);
 
     session.lastActivity = Date.now();
     session.abortController = undefined;

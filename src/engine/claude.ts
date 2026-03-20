@@ -1,14 +1,12 @@
 import {
   query as runClaudeQuery,
   type Query as ClaudeQuery,
-  type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 
 import {
   categorize,
   type ClaudeEngineConfig,
   type EngineAdapter,
-  type EngineImageInput,
   type NormalizedEvent,
   type QueryConfig,
   type ToolCategory,
@@ -68,40 +66,18 @@ function isStaleSessionError(error: unknown): boolean {
   );
 }
 
-function createImagePrompt(
+function buildImageTextPrompt(
   text: string,
-  images: EngineImageInput[],
-  sessionId?: string
-): AsyncGenerator<SDKUserMessage, void, void> {
-  return (async function* imagePromptGenerator() {
-    const content: Array<Record<string, unknown>> = [{ type: "text", text }];
+  images: QueryConfig["images"]
+): string {
+  if (!images || images.length === 0) {
+    return text;
+  }
 
-    for (const image of images) {
-      content.push({
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: image.mimeType,
-          data: image.base64Data,
-        },
-      });
-    }
-
-    const payload: Record<string, unknown> = {
-      type: "user",
-      message: {
-        role: "user",
-        content,
-      },
-      parent_tool_use_id: null,
-    };
-
-    if (sessionId) {
-      payload.session_id = sessionId;
-    }
-
-    yield payload as SDKUserMessage;
-  })();
+  const imageLines = images.map(
+    (img) => `Image saved to: ${img.filePath}`
+  );
+  return `${text}\n\n${imageLines.join("\n")}`;
 }
 
 export class ClaudeAdapter implements EngineAdapter {
@@ -397,14 +373,8 @@ export class ClaudeAdapter implements EngineAdapter {
       return normalized;
     };
 
-    const buildPrompt = (): string | AsyncIterable<SDKUserMessage> => {
-      const prompt = config.prompt;
-
-      if (!config.images || config.images.length === 0) {
-        return prompt;
-      }
-
-      return createImagePrompt(prompt, config.images, config.sessionId);
+    const buildPrompt = (): string => {
+      return buildImageTextPrompt(config.prompt, config.images);
     };
 
     // Map our effort levels to Claude SDK effort levels

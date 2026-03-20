@@ -182,9 +182,6 @@ export interface EngineImageInput {
   filePath: string;
   /** MIME type (image/jpeg, image/png, etc.) */
   mimeType: string;
-  /** Base64-encoded data. Pre-computed by the photo handler.
-   *  Claude adapter uses this. Codex adapter ignores it (uses filePath). */
-  base64Data: string;
 }
 
 // ─── Query Config ──────────────────────────────────────────────
