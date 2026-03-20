@@ -394,7 +394,7 @@ export class ClaudeAdapter implements EngineAdapter {
       return runClaudeQuery({
         prompt: buildPrompt(),
         options: {
-          model: config.model ?? this.defaultModel,
+          model: (config.model ?? this.defaultModel).replace(/\[.*\]$/, ""),
           cwd: config.workingDir || this.defaultWorkingDir,
           env: cleanEnv,
           settingSources: ["user", "project"],
