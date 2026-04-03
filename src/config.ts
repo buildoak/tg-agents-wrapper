@@ -1,6 +1,11 @@
 import { existsSync, mkdirSync } from "fs";
 
-import { isReasoningEffort, type ReasoningEffort } from "./types";
+import {
+  DEFAULT_CODEX_MODEL,
+  isCodexModel,
+  isReasoningEffort,
+  type ReasoningEffort,
+} from "./types";
 
 export const BOT_TOKEN = process.env.TGBOT_API_KEY || "";
 export const ALLOWED_USERS = (process.env.TGBOT_ALLOWED_USERS || "")
@@ -23,6 +28,7 @@ export const ELEVENLABS_SHARED_VOICE_ID = process.env.DEFAULT_ELEVENLABS_VOICE_I
 export const ELEVENLABS_VOICE_NAME = process.env.ELEVENLABS_VOICE_NAME || "";
 export const ELEVENLABS_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_flash_v2_5";
 export const KOKORO_DEFAULT_VOICE = process.env.DEFAULT_KOKORO_VOICE || "af_heart";
+export const KOKORO_PYTHON_PATH = process.env.KOKORO_PYTHON_PATH || "/Users/otonashi/thinking/pratchett-os/.python/llm-tools/.venv/bin/python";
 
 export const DEFAULT_ENGINE =
   process.env.DEFAULT_ENGINE === "codex" ? "codex" : "claude";
@@ -33,9 +39,19 @@ export const DEFAULT_REASONING_EFFORT: ReasoningEffort =
     ? rawEffort
     : "high";
 
-export const CODEX_MODEL = process.env.CODEX_MODEL || "gpt-5.4";
-export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-opus-4-6";
+export const CODEX_MODEL = isCodexModel(process.env.CODEX_MODEL)
+  ? process.env.CODEX_MODEL
+  : DEFAULT_CODEX_MODEL;
+// The [1m] suffix triggers the SDK's internal 1M context pipeline.
+// The SDK strips [1m] before sending to the API (model ID remains claude-opus-4-6),
+// but the suffix is required for the full 1M beta to activate at the API level.
+export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-opus-4-6[1m]";
 export const WET_PORT = process.env.WET_PORT || "";
+export const WET_DISABLED = process.env.WET_DISABLED === "1";
+
+// Claude streaming input mode — persistent subprocess per session
+export const CLAUDE_STREAM_IDLE_TIMEOUT_MS = parseInt(process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS || "86400000", 10);
+export const CLAUDE_STREAM_MAX_SESSIONS = parseInt(process.env.CLAUDE_STREAM_MAX_SESSIONS || "20", 10);
 
 for (const dir of [TEMP_DIR, DOCUMENT_FILES_DIR]) {
   if (!existsSync(dir)) {
@@ -70,6 +86,7 @@ export const config = {
   ELEVENLABS_VOICE_NAME,
   ELEVENLABS_MODEL_ID,
   KOKORO_DEFAULT_VOICE,
+  KOKORO_PYTHON_PATH,
   DEFAULT_ENGINE,
   DEFAULT_REASONING_EFFORT,
   CODEX_MODEL,
@@ -91,11 +108,13 @@ export const config = {
   elevenLabsVoiceName: ELEVENLABS_VOICE_NAME,
   elevenLabsModelId: ELEVENLABS_MODEL_ID,
   kokoroDefaultVoice: KOKORO_DEFAULT_VOICE,
+  kokoroPythonPath: KOKORO_PYTHON_PATH,
   defaultEngine: DEFAULT_ENGINE,
   defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
   codexModel: CODEX_MODEL,
   claudeModel: CLAUDE_MODEL,
   wetPort: WET_PORT,
+  wetDisabled: WET_DISABLED,
 };
 
 validateConfig();

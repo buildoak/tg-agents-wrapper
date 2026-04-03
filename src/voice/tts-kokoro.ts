@@ -1,6 +1,6 @@
 import { existsSync, unlinkSync } from "fs";
 
-import { KOKORO_DEFAULT_VOICE, TEMP_DIR } from "../config";
+import { KOKORO_DEFAULT_VOICE, KOKORO_PYTHON_PATH, TEMP_DIR } from "../config";
 import { splitTextForTTS } from "./tts-elevenlabs";
 
 export interface KokoroConfig {
@@ -13,26 +13,35 @@ export interface KokoroAvailability {
 }
 
 let cachedAvailability: KokoroAvailability | null = null;
+let lastCheckTime = 0;
+const RECHECK_COOLDOWN_MS = 60_000;
+
+export function clearKokoroAvailabilityCache(): void {
+  cachedAvailability = null;
+}
 
 export async function isKokoroAvailable(): Promise<KokoroAvailability> {
-  if (cachedAvailability) {
+  if (
+    cachedAvailability &&
+    (Date.now() - lastCheckTime) < RECHECK_COOLDOWN_MS
+  ) {
     return cachedAvailability;
   }
 
   const missing: string[] = [];
 
-  // Check python3 mlx_audio
+  // Check Python mlx_audio
   try {
-    const proc = Bun.spawn(["python3", "-c", "import mlx_audio"], {
+    const proc = Bun.spawn([KOKORO_PYTHON_PATH, "-c", "import mlx_audio"], {
       stdout: "pipe",
       stderr: "pipe",
     });
     const exitCode = await proc.exited;
     if (exitCode !== 0) {
-      missing.push("python3 mlx-audio");
+      missing.push(`${KOKORO_PYTHON_PATH} mlx-audio`);
     }
   } catch {
-    missing.push("python3 mlx-audio");
+    missing.push(`${KOKORO_PYTHON_PATH} mlx-audio`);
   }
 
   // Check ffmpeg
@@ -49,6 +58,7 @@ export async function isKokoroAvailable(): Promise<KokoroAvailability> {
     missing.push("ffmpeg");
   }
 
+  lastCheckTime = Date.now();
   cachedAvailability = { available: missing.length === 0, missing };
   return cachedAvailability;
 }
@@ -73,7 +83,7 @@ export async function kokoroTextToSpeech(text: string, config: KokoroConfig): Pr
       // Generate WAV via mlx-audio
       const genProc = Bun.spawn(
         [
-          "python3",
+          KOKORO_PYTHON_PATH,
           "-m",
           "mlx_audio.tts.generate",
           "--model",
@@ -99,6 +109,7 @@ export async function kokoroTextToSpeech(text: string, config: KokoroConfig): Pr
       if (exitCode !== 0) {
         const stderr = await new Response(genProc.stderr).text();
         console.error("Kokoro generation failed:", stderr);
+        clearKokoroAvailabilityCache();
         continue;
       }
 
@@ -134,6 +145,7 @@ export async function kokoroTextToSpeech(text: string, config: KokoroConfig): Pr
         } catch {}
       }
     } catch (err) {
+      clearKokoroAvailabilityCache();
       console.error("Kokoro TTS error:", err);
     }
   }
