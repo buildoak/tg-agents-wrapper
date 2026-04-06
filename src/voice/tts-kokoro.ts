@@ -116,6 +116,11 @@ export async function kokoroTextToSpeech(text: string, config: KokoroConfig): Pr
       // The file might be tts_{id}_000.wav or tts_{id}.wav depending on join_audio
       const actualWav = existsSync(wavPath) ? wavPath : `${TEMP_DIR}/${filePrefix}_000.wav`;
 
+      if (!existsSync(actualWav)) {
+        console.error(`Kokoro WAV not found at ${actualWav} — generation produced no output file`);
+        continue;
+      }
+
       // Convert to OGG/Opus for Telegram
       const ffProc = Bun.spawn(
         ["ffmpeg", "-y", "-i", actualWav, "-c:a", "libopus", "-b:a", "48k", "-ar", "48000", oggPath],
