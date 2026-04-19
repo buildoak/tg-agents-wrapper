@@ -50,7 +50,7 @@ export interface Session {
   voiceMode: VoiceMode;
   voiceId: string;
 
-  /** Reasoning effort for both engines. Claude maps to thinking budget, Codex to reasoning_effort. */
+  /** Reasoning effort for both engines. Claude maps to SDK effort param with adaptive thinking, Codex to reasoning_effort. */
   reasoningEffort?: ReasoningEffort;
   codexModel?: CodexModel;
   showThinking?: boolean;

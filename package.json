@@ -18,7 +18,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.2.81",
+    "@anthropic-ai/claude-agent-sdk": "0.2.110",
     "@openai/codex-sdk": "^0.101.0",
     "grammy": "^1.38.4",
     "openai": "^4.77.0"

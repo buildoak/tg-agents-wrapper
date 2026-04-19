@@ -195,7 +195,7 @@ export interface QueryConfig {
   abortSignal: AbortSignal;
   /** Model override (default: engine's configured model) */
   model?: string;
-  /** Reasoning effort override. Codex: maps to reasoning_effort. Claude: maps to thinking budget. */
+  /** Reasoning effort override. Claude maps to SDK effort param with adaptive thinking, Codex to reasoning_effort. */
   reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   /** Stable key for persistent runtime lookup (Claude streaming mode). Typically String(userId). */
   runtimeKey: string;

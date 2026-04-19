@@ -43,9 +43,9 @@ export const CODEX_MODEL = isCodexModel(process.env.CODEX_MODEL)
   ? process.env.CODEX_MODEL
   : DEFAULT_CODEX_MODEL;
 // The [1m] suffix triggers the SDK's internal 1M context pipeline.
-// The SDK strips [1m] before sending to the API (model ID remains claude-opus-4-6),
+// The SDK strips [1m] before sending to the API (model ID remains claude-sonnet-4-6),
 // but the suffix is required for the full 1M beta to activate at the API level.
-export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-opus-4-6[1m]";
+export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-6[1m]";
 export const WET_PORT = process.env.WET_PORT || "";
 export const WET_DISABLED = process.env.WET_DISABLED === "1";
 

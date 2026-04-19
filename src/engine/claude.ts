@@ -323,15 +323,18 @@ export class ClaudeAdapter implements EngineAdapter {
     const cleanEnv = this.buildCleanEnv();
     await this.resolveBaseUrl(cleanEnv);
 
-    const claudeEffort = (() => {
+    // SDK contract: effort: 'max' is Opus 4.6 only. Sonnet caps at 'high'.
+    const resolvedModel = config.model ?? this.defaultModel;
+    const maxLevel: 'high' | 'max' = resolvedModel.includes('opus') ? 'max' : 'high';
+    const claudeEffort: 'low' | 'medium' | 'high' | 'max' = (() => {
       switch (config.reasoningEffort) {
-        case "minimal": return "low" as const;
-        case "low": return "low" as const;
-        case "medium": return "medium" as const;
-        case "high": return "high" as const;
-        case "xhigh": return "max" as const;
-        case "max": return "max" as const;
-        default: return undefined;
+        case "minimal":
+        case "low":    return "low";
+        case "medium": return "medium";
+        case "high":   return "high";
+        case "xhigh":
+        case "max":    return maxLevel;
+        default:       return "high";
       }
     })();
 
@@ -345,14 +348,15 @@ export class ClaudeAdapter implements EngineAdapter {
     const queryInstance = runClaudeQuery({
       prompt: input,
       options: {
-        model: config.model ?? this.defaultModel,
+        model: resolvedModel,
         betas: ["context-1m-2025-08-07"],
         cwd: config.workingDir || this.defaultWorkingDir,
         env: cleanEnv,
         settingSources: ["user", "project"],
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
-        ...(claudeEffort ? { effort: claudeEffort } : {}),
+        thinking: { type: 'adaptive' },
+        effort: claudeEffort,
         ...(resumeSessionId ? { resume: resumeSessionId } : {}),
         // NO maxTurns — persistent process handles unlimited turns
       },
