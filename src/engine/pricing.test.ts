@@ -122,7 +122,7 @@ describe("getContextWindow", () => {
   });
 
   test("returns correct window for claude-opus-4-6", () => {
-    expect(getContextWindow("claude-opus-4-6")).toBe(200_000);
+    expect(getContextWindow("claude-opus-4-6")).toBe(1_000_000);
   });
 
   test("returns correct window for claude-sonnet-4-6", () => {

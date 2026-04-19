@@ -49,6 +49,19 @@ export async function abortUserQuery(
   store.set(userId, session);
 }
 
+export async function disposeUserEngineSession(
+  userId: number,
+  adapter: EngineAdapter,
+): Promise<void> {
+  if (adapter.disposeSession) {
+    try {
+      await adapter.disposeSession(String(userId));
+    } catch (error) {
+      console.warn(`[dispose] failed for user ${userId}:`, error);
+    }
+  }
+}
+
 export function consumeInterruptFlag(session: Session): boolean {
   const wasInterrupted = session.wasInterruptedByNewMessage;
   session.wasInterruptedByNewMessage = false;
@@ -79,6 +92,7 @@ export async function resetSession(
   try {
     if (typeof engine !== "string") {
       await abortUserQuery(userId, engine, store);
+      await disposeUserEngineSession(userId, engine);
     } else if (session.abortController) {
       session.abortController.abort();
       session.abortController = undefined;

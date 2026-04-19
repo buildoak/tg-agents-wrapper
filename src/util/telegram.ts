@@ -62,7 +62,7 @@ export function wrapMessage(
   voiceMode: VoiceMode,
   meta?: WrapMessageMeta
 ): string {
-  const tag = voiceMode !== "off" ? "tg_message_voice" : "tg_message";
+  const tag = meta?.mediaType === "voice" ? "tg_message_voice" : "tg_message";
 
   const attrs: string[] = [];
   if (meta?.username) attrs.push(`from="${escapeXmlAttr(meta.username)}"`);
@@ -83,6 +83,16 @@ export function wrapMessage(
   return `<${tag}${attrStr}>\n${inner}\n</${tag}>`;
 }
 
+export function stripHtmlTags(text: string): string {
+  return text
+    .replace(/<[^>]*>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
 export async function sendLongMessageDirect(
   bot: Bot,
   chatId: number,
@@ -91,16 +101,25 @@ export async function sendLongMessageDirect(
   parseMode?: TelegramParseMode
 ): Promise<void> {
   const opts = parseMode ? { parse_mode: parseMode } : undefined;
+  const messageText = parseMode ? text : stripHtmlTags(text);
 
-  if (text.length <= maxLen) {
-    await bot.api.sendMessage(chatId, text, opts);
+  if (messageText.length <= maxLen) {
+    try {
+      await bot.api.sendMessage(chatId, messageText, opts);
+    } catch {
+      await bot.api.sendMessage(chatId, stripHtmlTags(messageText));
+    }
     return;
   }
 
-  let remaining = text;
+  let remaining = messageText;
   while (remaining.length > 0) {
     if (remaining.length <= maxLen) {
-      await bot.api.sendMessage(chatId, remaining, opts);
+      try {
+        await bot.api.sendMessage(chatId, remaining, opts);
+      } catch {
+        await bot.api.sendMessage(chatId, stripHtmlTags(remaining));
+      }
       break;
     }
 
@@ -112,7 +131,22 @@ export async function sendLongMessageDirect(
       splitAt = maxLen;
     }
 
-    await bot.api.sendMessage(chatId, remaining.slice(0, splitAt), opts);
+    // Don't split inside an HTML tag: find last '>' before splitAt,
+    // then check if there's an unmatched '<' after it.
+    const lastClose = remaining.lastIndexOf(">", splitAt);
+    const lastOpen = remaining.lastIndexOf("<", splitAt);
+    if (lastOpen > lastClose) {
+      // We're inside a tag — back up to before the '<'
+      splitAt = lastOpen;
+      if (splitAt <= 0) splitAt = maxLen; // safety fallback
+    }
+
+    const chunk = remaining.slice(0, splitAt);
+    try {
+      await bot.api.sendMessage(chatId, chunk, opts);
+    } catch {
+      await bot.api.sendMessage(chatId, stripHtmlTags(chunk));
+    }
     remaining = remaining.slice(splitAt).trim();
   }
 }

@@ -8,5 +8,6 @@ sessions.json
 *.jsonl
 .claude/
 .tmp/
+tmp/
 *.tgz
 private/

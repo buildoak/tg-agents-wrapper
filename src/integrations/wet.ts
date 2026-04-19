@@ -1,4 +1,5 @@
 import { type Subprocess } from "bun";
+import { WET_DISABLED } from "../config";
 
 export interface WetStatus {
   api_input_tokens: number;
@@ -145,12 +146,39 @@ async function waitForWetReady(port: string, timeoutMs = 5000): Promise<boolean>
 
 let wetProcess: Subprocess | null = null;
 
+// PID of an adopted external wet instance (not spawned by us).
+// Used to kill orphan wet processes on shutdown/restart.
+let adoptedWetPid: number | null = null;
+
+/**
+ * Resolve the PID of a process listening on the given TCP port.
+ * Uses `lsof` which is available on macOS and most Linux.
+ * Returns null if the PID cannot be determined.
+ */
+async function resolveListenerPid(port: string): Promise<number | null> {
+  try {
+    const proc = Bun.spawn(["lsof", "-ti", `tcp:${port}`], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const text = await new Response(proc.stdout).text();
+    await proc.exited;
+    // lsof may return multiple PIDs (one per fd); take the first.
+    const firstLine = text.trim().split("\n")[0] ?? "";
+    const pid = parseInt(firstLine, 10);
+    return Number.isFinite(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Start the wet serve proxy process.
  * Returns the port string on success, null on failure.
  * Safe to call multiple times — detects external instances and reuses them.
  */
 export async function startWetServe(): Promise<string | null> {
+  if (WET_DISABLED) return null;
   const port = resolveWetPort();
 
   // Check if wet is already running on this port (external instance)
@@ -159,7 +187,12 @@ export async function startWetServe(): Promise<string | null> {
       signal: AbortSignal.timeout(1000),
     });
     if (res.ok) {
-      console.log(`[wet] external instance already running on port ${port}`);
+      // Adopt the external instance, but track its PID so we can kill it
+      // on shutdown/restart. Without this, adopted instances leak as orphans
+      // because wetProcess is null and killWetProcess() is a no-op.
+      const pid = await resolveListenerPid(port);
+      adoptedWetPid = pid;
+      console.log(`[wet] external instance already running on port ${port} (adopted pid=${pid ?? "unknown"})`);
       process.env.WET_PORT = port;
       // Don't include /v1 — the Anthropic SDK already prepends /v1 to all API paths.
       // Setting /v1 here would produce /v1/v1/messages → 404.
@@ -198,9 +231,18 @@ export async function startWetServe(): Promise<string | null> {
 }
 
 /**
- * Kill the managed wet serve child process. No-op if no managed process exists.
+ * Kill the wet serve process — whether it was spawned by us or adopted.
+ *
+ * Three cases:
+ * 1. wetProcess set → we spawned it, kill the child directly.
+ * 2. adoptedWetPid set → external instance we adopted, kill by PID.
+ * 3. Neither → true no-op.
+ *
+ * This fixes the orphan leak: previously, adopted instances had wetProcess=null
+ * so killWetProcess() was a no-op and the process survived bot shutdown.
  */
 export function killWetProcess(): void {
+  if (WET_DISABLED) return;
   if (wetProcess) {
     try {
       wetProcess.kill();
@@ -208,6 +250,17 @@ export function killWetProcess(): void {
       // already dead
     }
     wetProcess = null;
+  } else if (adoptedWetPid !== null) {
+    // Kill the adopted external wet instance by PID.
+    // This covers: bot restart adopting a stale wet, manual `wet serve` left over,
+    // and crashed `wet claude` sessions that left orphan `wet serve` processes.
+    try {
+      process.kill(adoptedWetPid);
+      console.log(`[wet] killed adopted wet process (pid=${adoptedWetPid})`);
+    } catch {
+      // already dead or PID reused — safe to ignore
+    }
+    adoptedWetPid = null;
   }
 }
 
@@ -221,5 +274,9 @@ export async function restartWetServe(): Promise<string | null> {
   // Clear env so startWetServe doesn't think an external instance is running
   // from the old managed process (which we just killed)
   delete process.env.ANTHROPIC_BASE_URL;
+  // Brief delay to let the killed process release the port.
+  // Without this, startWetServe may probe the port before it's freed,
+  // see a lingering connection, and adopt a dying process.
+  await new Promise((r) => setTimeout(r, 300));
   return startWetServe();
 }

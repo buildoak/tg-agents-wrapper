@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 
-import { createBot } from "./bot";
+import { BOT_COMMANDS, createBot } from "./bot";
 import {
   ALLOWED_USERS,
   BOT_NAME,
@@ -18,6 +18,7 @@ import {
   KOKORO_DEFAULT_VOICE,
   OPENAI_API_KEY,
   SESSION_FILE,
+  WET_DISABLED,
   WORKING_DIR,
 } from "./config";
 import { ClaudeAdapter } from "./engine/claude";
@@ -41,8 +42,14 @@ async function main(): Promise<void> {
   console.log(`Default engine: ${DEFAULT_ENGINE}`);
   console.log(`Default reasoning effort: ${DEFAULT_REASONING_EFFORT}`);
 
-  // Start managed wet serve process for accurate context tracking
-  await startWetServe();
+  // Start managed wet serve process for accurate context tracking.
+  // When WET_DISABLED=1, skip entirely — SDK hits api.anthropic.com directly,
+  // and dual-lane token tracking (SDK events + JSONL) provides context fill.
+  if (!WET_DISABLED) {
+    await startWetServe();
+  } else {
+    console.log("[wet] disabled via WET_DISABLED=1 — using SDK+JSONL token tracking");
+  }
 
   const sessionStore = new SessionStore(SESSION_FILE);
   await sessionStore.load();
@@ -123,6 +130,13 @@ async function main(): Promise<void> {
     },
   });
 
+  try {
+    await bot.api.setMyCommands(BOT_COMMANDS);
+    console.log(`Registered ${BOT_COMMANDS.length} Telegram commands`);
+  } catch (error) {
+    console.error("Failed to register Telegram commands:", error);
+  }
+
   let isShuttingDown = false;
 
   const gracefulShutdown = async (signal: string): Promise<void> => {
@@ -168,7 +182,9 @@ async function main(): Promise<void> {
       }
     }
 
-    killWetProcess();
+    if (!WET_DISABLED) {
+      killWetProcess();
+    }
 
     await new Promise((resolve) => setTimeout(resolve, 2_000));
     console.log("Shutdown complete.");

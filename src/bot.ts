@@ -2,8 +2,10 @@ import { Bot, InlineKeyboard } from "grammy";
 
 import { BufferManager } from "./buffer/message-buffer";
 import { MediaGroupCollector } from "./buffer/media-group";
-import { BOT_NAME, DEFAULT_ENGINE, isAuthorized } from "./config";
+import { BOT_NAME, DEFAULT_ENGINE, isAuthorized, WET_DISABLED } from "./config";
 import { type EngineAdapter } from "./engine/interface";
+import { getSessionTokens, resetSessionTokens } from "./engine/session-tokens";
+import { stopJsonlWatcher } from "./engine/jsonl-watcher";
 import { handleCallbackQuery } from "./handlers/callback";
 import { handleDocumentMessage } from "./handlers/document";
 import { handlePhotoMessage } from "./handlers/photo";
@@ -11,7 +13,14 @@ import { handleTextMessage } from "./handlers/text";
 import { handleVoiceMessage } from "./handlers/voice";
 import { abortUserQuery } from "./session/lifecycle";
 import { SessionStore } from "./session/store";
-import { isReasoningEffort, REASONING_EFFORTS, type EngineType, type Session } from "./types";
+import {
+  CODEX_MODELS,
+  isCodexModel,
+  isReasoningEffort,
+  REASONING_EFFORTS,
+  type EngineType,
+  type Session,
+} from "./types";
 import { getWetStatus, isWetAvailable, killWetProcess, restartWetServe } from "./integrations/wet";
 import { type OpenAITranscriptionClient } from "./voice/transcribe";
 import { type TTSRouterConfig } from "./voice/tts-router";
@@ -40,6 +49,21 @@ export interface CreatedBot {
   bufferManager: BufferManager;
   mediaGroupCollector: MediaGroupCollector;
 }
+
+export const BOT_COMMANDS = [
+  { command: "start", description: "Start or reset the session" },
+  { command: "stop", description: "Stop the current session" },
+  { command: "interrupt", description: "Abort the current query" },
+  { command: "status", description: "Show session status" },
+  { command: "context", description: "Show context usage" },
+  { command: "mode", description: "Change voice mode" },
+  { command: "voice", description: "Set the voice ID" },
+  { command: "batch", description: "Toggle batch delay" },
+  { command: "engine", description: "Switch engine" },
+  { command: "model", description: "Switch Codex model" },
+  { command: "effort", description: "Switch reasoning effort" },
+  { command: "thinking", description: "Toggle thinking visibility" },
+] satisfies Array<{ command: string; description: string }>;
 
 function modeLabel(mode: Session["voiceMode"]): string {
   if (mode === "cloud") return "🎙️ Voice (Cloud)";
@@ -83,6 +107,13 @@ function parseCommandArg(text: string, command: string): string {
 
 function getAdapter(engines: Record<EngineType, EngineAdapter>, engine: EngineType): EngineAdapter {
   return engines[engine] ?? engines.claude;
+}
+
+function resetQueryState(session: Session): void {
+  session.sessionId = undefined;
+  session.lastInputTokens = 0;
+  session.cumulativeInputTokens = 0;
+  session.lastModelUsage = undefined;
 }
 
 export function createBot(deps: CreateBotDeps): CreatedBot {
@@ -152,9 +183,14 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
     const existing = deps.store.getAll().get(userId);
     const previousEngine = existing?.engine;
     const previousEffort = existing?.reasoningEffort;
+    const previousCodexModel = existing?.codexModel;
 
     if (existing) {
-      await abortUserQuery(userId, getAdapter(deps.engines, existing.engine), deps.store);
+      const adapter = getAdapter(deps.engines, existing.engine);
+      await abortUserQuery(userId, adapter, deps.store);
+      if (adapter.disposeSession) {
+        await adapter.disposeSession(String(userId));
+      }
     }
 
     await bufferManager.clearUserBuffers(userId);
@@ -166,6 +202,9 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
       fresh.engine = previousEngine;
       if (previousEffort) fresh.reasoningEffort = previousEffort;
     }
+    if (previousCodexModel) {
+      fresh.codexModel = previousCodexModel;
+    }
     // Reset wet context tracking for the new session
     fresh.wetContextTokens = 0;
     fresh.wetContextWindow = 0;
@@ -173,8 +212,14 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
 
     await deps.store.save();
 
-    // Restart wet proxy so the new session gets a clean context tracker
-    await restartWetServe();
+    // Reset dual-lane token tracking and stop JSONL watcher
+    if (WET_DISABLED) {
+      resetSessionTokens();
+      stopJsonlWatcher();
+    } else {
+      // Restart wet proxy so the new session gets a clean context tracker
+      await restartWetServe();
+    }
 
     await ctx.reply(`${BOT_NAME} online. New session (${previousEngine || DEFAULT_ENGINE}).  Choose your mode:`, {
       reply_markup: modeKeyboard(),
@@ -187,15 +232,25 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
 
     const existing = deps.store.getAll().get(userId);
     if (existing) {
-      await abortUserQuery(userId, getAdapter(deps.engines, existing.engine), deps.store);
+      const adapter = getAdapter(deps.engines, existing.engine);
+      await abortUserQuery(userId, adapter, deps.store);
+      if (adapter.disposeSession) {
+        await adapter.disposeSession(String(userId));
+      }
     }
 
     await bufferManager.clearUserBuffers(userId);
     deps.store.delete(userId);
     await deps.store.save();
 
-    // Kill wet proxy — it tracks context per session, stale after /stop
-    killWetProcess();
+    // Clean up context tracking
+    if (WET_DISABLED) {
+      resetSessionTokens();
+      stopJsonlWatcher();
+    } else {
+      // Kill wet proxy — it tracks context per session, stale after /stop
+      killWetProcess();
+    }
 
     await ctx.reply("Session stopped. Any running query was aborted.");
   });
@@ -241,6 +296,7 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
 
     if (session) {
       status += `\nEngine: ${session.engine}`;
+      status += `\nCodex model: ${session.codexModel}`;
       status += `\nEffort: ${displayEffort(session.reasoningEffort)}`;
       status += `\nMode: ${modeLabel(session.voiceMode)}`;
       status += `\nBatch delay: ${Math.round(session.batchDelayMs / 1000)}s`;
@@ -307,26 +363,41 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
     const cost = session.totalCostUSD || 0;
     const shortId = session.sessionId!.slice(0, 8);
 
-    // Prefer wet proxy values stored on session (accurate, excludes subagent API calls).
-    // Fall back to live wet query, then SDK values.
-    const useSessionWet = session.wetContextWindow > 0 && session.wetContextTokens > 0;
+    // Resolve context source: wet proxy when available, dual-lane SDK+JSONL when disabled.
     let totalInput: number;
     let contextWindow: number;
     let source: string;
 
-    if (useSessionWet) {
-      totalInput = session.wetContextTokens;
-      contextWindow = session.wetContextWindow;
-      source = "(via wet proxy)";
+    if (WET_DISABLED) {
+      // Dual-lane: prefer SDK snapshot, fall back to JSONL, then raw usage fields
+      const st = getSessionTokens();
+      const latest = st.getLatest();
+      if (latest) {
+        totalInput = latest.totalContext;
+        contextWindow = st.getContextWindow();
+        source = `(via SDK+JSONL, ${latest.source} lane)`;
+      } else {
+        totalInput = u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens;
+        contextWindow = u.contextWindow;
+        source = "(via SDK result — no per-call data yet)";
+      }
     } else {
-      // Try live wet status as fallback
-      const wetStatus = await getWetStatus();
-      const useWet = wetStatus !== null && wetStatus.context_window > 0;
-      totalInput = useWet
-        ? wetStatus.latest_total_input_tokens
-        : u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens;
-      contextWindow = useWet ? wetStatus.context_window : u.contextWindow;
-      source = useWet ? "(via wet proxy)" : "(via SDK — may include subagent tokens)";
+      // Prefer wet proxy values stored on session (accurate, excludes subagent API calls).
+      // Fall back to live wet query, then SDK values.
+      const useSessionWet = session.wetContextWindow > 0 && session.wetContextTokens > 0;
+      if (useSessionWet) {
+        totalInput = session.wetContextTokens;
+        contextWindow = session.wetContextWindow;
+        source = "(via wet proxy)";
+      } else {
+        const wetStatus = await getWetStatus();
+        const useWet = wetStatus !== null && wetStatus.context_window > 0;
+        totalInput = useWet
+          ? wetStatus.latest_total_input_tokens
+          : u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens;
+        contextWindow = useWet ? wetStatus.context_window : u.contextWindow;
+        source = useWet ? "(via wet proxy)" : "(via SDK — may include subagent tokens)";
+      }
     }
 
     const pct = contextWindow > 0 ? (totalInput / contextWindow) * 100 : 0;
@@ -340,6 +411,20 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
       `Cache: ${u.cacheReadInputTokens.toLocaleString()} read / ${u.cacheCreationInputTokens.toLocaleString()} created`,
       `Cost: $${cost.toFixed(4)}`,
     ];
+
+    // When dual-lane is active, show both lane values for transparency
+    if (WET_DISABLED) {
+      const { sdk, jsonl } = getSessionTokens().getBothLanes();
+      if (sdk && jsonl) {
+        const divergence = getSessionTokens().checkDivergence();
+        const divTag = divergence?.divergent ? " ⚠️ DIVERGENT" : "";
+        lines.push(`SDK lane: ${sdk.totalContext.toLocaleString()} | JSONL lane: ${jsonl.totalContext.toLocaleString()}${divTag}`);
+      } else if (sdk) {
+        lines.push(`SDK lane: ${sdk.totalContext.toLocaleString()} | JSONL lane: no data`);
+      } else if (jsonl) {
+        lines.push(`SDK lane: no data | JSONL lane: ${jsonl.totalContext.toLocaleString()}`);
+      }
+    }
 
     if (wetStats) lines.push(wetStats);
     await ctx.reply(lines.join("\n"), wetStats ? { parse_mode: "HTML" } : undefined);
@@ -420,19 +505,65 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
       await abortUserQuery(userId, getAdapter(deps.engines, session.engine), deps.store, true);
     }
 
+    // Dispose Claude streaming runtime on engine switch
+    const oldAdapter = getAdapter(deps.engines, session.engine);
+    if (oldAdapter.disposeSession) {
+      await oldAdapter.disposeSession(String(userId));
+    }
+
     await bufferManager.clearUserBuffers(userId);
 
     session.engine = arg;
-    session.sessionId = undefined;
-    session.lastInputTokens = 0;
-    session.cumulativeInputTokens = 0;
-    session.lastModelUsage = undefined;
+    resetQueryState(session);
 
     deps.store.set(userId, session);
     await deps.store.save();
 
     await ctx.reply(
       `Engine switched to ${arg}. New ${arg} session will start on your next message.`
+    );
+  });
+
+  bot.command("model", async (ctx) => {
+    const userId = ctx.from?.id;
+    const text = (ctx.message as { text?: string } | undefined)?.text;
+    if (!userId || !text) return;
+
+    const session = deps.store.get(userId);
+    const arg = parseCommandArg(text, "model").toLowerCase();
+
+    if (!arg) {
+      await ctx.reply(`Current Codex model: ${session.codexModel}\nUsage: /model [${CODEX_MODELS.join("|")}]`);
+      return;
+    }
+
+    if (!isCodexModel(arg)) {
+      await ctx.reply(`Invalid Codex model. Choose: ${CODEX_MODELS.join(", ")}`);
+      return;
+    }
+
+    if (session.codexModel === arg) {
+      await ctx.reply(`Already using Codex model ${arg}.`);
+      return;
+    }
+
+    if (session.engine === "codex" && (session.isQueryActive || session.abortController)) {
+      await abortUserQuery(userId, getAdapter(deps.engines, session.engine), deps.store, true);
+    }
+
+    session.codexModel = arg;
+
+    if (session.engine === "codex") {
+      resetQueryState(session);
+    }
+
+    deps.store.set(userId, session);
+    await deps.store.save();
+
+    await ctx.reply(
+      session.engine === "codex"
+        ? `Codex model switched to ${arg}. A new Codex session will start on your next message.`
+        : `Codex model set to ${arg}. It will be used the next time you switch to Codex.`
     );
   });
 
@@ -526,6 +657,23 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
       ttsConfig: deps.ttsConfig,
     });
   });
+
+  // Idle cleanup for Claude persistent runtimes — check every 60s
+  const idleCleanupInterval = setInterval(async () => {
+    const claudeAdapter = deps.engines.claude;
+    if (claudeAdapter.disposeIdleSessions) {
+      try {
+        await claudeAdapter.disposeIdleSessions();
+      } catch (error) {
+        console.warn("[idle-cleanup] failed:", error);
+      }
+    }
+  }, 60_000);
+
+  // Ensure cleanup interval doesn't prevent process exit
+  if (idleCleanupInterval.unref) {
+    idleCleanupInterval.unref();
+  }
 
   return {
     bot,

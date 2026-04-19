@@ -110,6 +110,16 @@ export async function handleCallbackQuery(ctx: Context, deps: CallbackHandlerDep
       await abortUserQuery(userId, deps.engines[session.engine], deps.store, true);
     }
 
+    // Dispose Claude streaming runtime on engine switch
+    const oldAdapter = deps.engines[session.engine];
+    if (oldAdapter.disposeSession) {
+      try {
+        await oldAdapter.disposeSession(String(userId));
+      } catch (error) {
+        console.warn(`[callback] dispose runtime failed for user ${userId}:`, error);
+      }
+    }
+
     await deps.bufferManager.clearUserBuffers(userId);
 
     session.engine = value;

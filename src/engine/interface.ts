@@ -197,6 +197,8 @@ export interface QueryConfig {
   model?: string;
   /** Reasoning effort override. Codex: maps to reasoning_effort. Claude: maps to thinking budget. */
   reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  /** Stable key for persistent runtime lookup (Claude streaming mode). Typically String(userId). */
+  runtimeKey: string;
 }
 
 // ─── Engine Adapter ────────────────────────────────────────────
@@ -234,6 +236,16 @@ export interface EngineAdapter {
    * Get the current session/thread ID, or undefined if no session active.
    */
   getSessionId(): string | undefined;
+
+  /**
+   * Dispose a specific persistent runtime by key (Claude streaming mode).
+   */
+  disposeSession?(runtimeKey: string): Promise<void>;
+
+  /**
+   * Dispose all idle persistent runtimes past timeout threshold (Claude streaming mode).
+   */
+  disposeIdleSessions?(): Promise<void>;
 
   /**
    * Clean up resources. Called on graceful shutdown.

@@ -58,9 +58,12 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   },
 };
 
+// Opus and Sonnet 4.6 natively support 1M context; the beta header
+// (context-1m-2025-08-07) is always sent in this codebase, so 1M is the
+// effective window. The [1m] suffix variants are kept for backwards compat.
 export const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "claude-opus-4-6[1m]": 1000000,
-  "claude-opus-4-6": 200000,
+  "claude-opus-4-6": 1000000,
   "claude-sonnet-4-6": 1000000,
   "codex-1": 192000,
   "gpt-4.1": 1000000,

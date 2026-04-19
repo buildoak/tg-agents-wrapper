@@ -1,7 +1,14 @@
 import { existsSync } from "fs";
 
 import { config, DEFAULT_ENGINE, DEFAULT_REASONING_EFFORT } from "../config";
-import { normalizeVoiceMode, type EngineType, type PersistedSession, type Session } from "../types";
+import {
+  DEFAULT_CODEX_MODEL,
+  isCodexModel,
+  normalizeVoiceMode,
+  type EngineType,
+  type PersistedSession,
+  type Session,
+} from "../types";
 
 type PersistedSessionRecord = Record<string, PersistedSession | (Omit<PersistedSession, "engine"> & { engine?: EngineType })>;
 
@@ -45,7 +52,10 @@ export class SessionStore {
     const data: Record<string, PersistedSession> = {};
 
     for (const [userId, session] of this.sessions.entries()) {
-      if (!session.sessionId) {
+      const shouldPersist =
+        Boolean(session.sessionId) || session.codexModel !== DEFAULT_CODEX_MODEL;
+
+      if (!shouldPersist) {
         continue;
       }
 
@@ -56,6 +66,7 @@ export class SessionStore {
         voiceMode: session.voiceMode,
         voiceId: session.voiceId,
         reasoningEffort: session.reasoningEffort,
+        codexModel: session.codexModel,
         showThinking: session.showThinking,
         lastModelUsage: session.lastModelUsage,
         totalCostUSD: session.totalCostUSD,
@@ -97,7 +108,7 @@ export class SessionStore {
 
       for (const [userIdStr, persisted] of Object.entries(data)) {
         const userId = Number.parseInt(userIdStr, 10);
-        if (Number.isNaN(userId) || !persisted.sessionId) {
+        if (Number.isNaN(userId)) {
           continue;
         }
 
@@ -109,6 +120,9 @@ export class SessionStore {
           voiceMode: normalizeVoiceMode(persisted.voiceMode),
           voiceId: persisted.voiceId || config.defaultVoiceId,
           reasoningEffort: persisted.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
+          codexModel: isCodexModel(persisted.codexModel)
+            ? persisted.codexModel
+            : DEFAULT_CODEX_MODEL,
           showThinking: persisted.showThinking ?? false,
           lastModelUsage: persisted.lastModelUsage,
           totalCostUSD: persisted.totalCostUSD || 0,
@@ -137,6 +151,7 @@ export class SessionStore {
       voiceMode: "off",
       voiceId: config.defaultVoiceId,
       reasoningEffort: DEFAULT_REASONING_EFFORT,
+      codexModel: DEFAULT_CODEX_MODEL,
       showThinking: false,
       totalCostUSD: 0,
       lastInputTokens: 0,

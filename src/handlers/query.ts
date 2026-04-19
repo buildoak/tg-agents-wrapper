@@ -1,8 +1,9 @@
 import { InputFile, type Bot } from "grammy";
 
-import { TEMP_DIR } from "../config";
+import { TEMP_DIR, WET_DISABLED } from "../config";
 import { type EngineAdapter, type EngineImageInput, type ToolCategory, type UsageEvent } from "../engine/interface";
 import { calculateCost, getContextWindow } from "../engine/pricing";
+import { getSessionTokens } from "../engine/session-tokens";
 import { checkContextThresholds, handleContextWarning } from "../session/context-monitor";
 import { consumeInterruptFlag } from "../session/lifecycle";
 import { SessionStore } from "../session/store";
@@ -276,6 +277,7 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
   };
 
   let streamedRawText = "";
+  let hasStreamedDeltas = false;
   let textDone = "";
   let previousTextDone = "";
   let doneText = "";
@@ -292,8 +294,9 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
       sessionId: session.sessionId,
       workingDir,
       abortSignal: abortController.signal,
-      model,
+      model: model ?? (session.engine === "codex" ? session.codexModel : undefined),
       reasoningEffort: session.reasoningEffort,
+      runtimeKey: String(userId),
     };
 
     for await (const event of adapter.query(queryConfig)) {
@@ -310,6 +313,7 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
 
       if (event.type === "text.delta") {
         streamedRawText += event.text;
+        hasStreamedDeltas = true;
         await updateStatus("✍️ Writing response...");
 
         const formattedChunk = markdownToTelegramHTML(event.text).trim();
@@ -321,7 +325,11 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
           continue;
         }
 
-        await sendLongMessageDirect(bot, chatId, formattedChunk, 4000, "HTML");
+        try {
+          await sendLongMessageDirect(bot, chatId, formattedChunk, 4000, "HTML");
+        } catch {
+          await sendLongMessageDirect(bot, chatId, formattedChunk, 4000);
+        }
         sentChunks.push(formattedChunk);
         continue;
       }
@@ -331,14 +339,18 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
         // Codex emits text.done per agent_message with accumulated text — no text.delta events.
         // Claude emits text.delta during streaming AND text.done at the end.
         // Only send text.done delta when nothing was sent via text.delta (Codex path).
-        if (sentChunks.length === 0) {
+        if (!hasStreamedDeltas) {
           const delta = event.text.slice(previousTextDone.length).trim();
           previousTextDone = event.text;
 
           if (delta && !/\[SEND_FILE:[^\]]+\]/.test(delta)) {
             const formatted = markdownToTelegramHTML(delta).trim();
             if (formatted) {
-              await sendLongMessageDirect(bot, chatId, formatted, 4000, "HTML");
+              try {
+                await sendLongMessageDirect(bot, chatId, formatted, 4000, "HTML");
+              } catch {
+                await sendLongMessageDirect(bot, chatId, formatted, 4000);
+              }
               sentChunks.push(formatted);
             }
           }
@@ -386,6 +398,11 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
       }
 
       if (event.type === "error") {
+        if (event.message.startsWith("[ede_diagnostic]")) {
+          console.warn("[ede_diagnostic]", event.message);
+          continue;
+        }
+
         if (event.fatal) {
           throw new Error(event.message);
         }
@@ -419,12 +436,21 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
 
     if (sentChunks.length === 0) {
       if (finalText) {
-        await sendLongMessageDirect(bot, chatId, finalText, 4000, "HTML");
+        try {
+          await sendLongMessageDirect(bot, chatId, finalText, 4000, "HTML");
+        } catch {
+          await sendLongMessageDirect(bot, chatId, finalText, 4000);
+        }
       } else {
         await bot.api.sendMessage(chatId, "(No text response from engine)");
       }
     } else if (fileNotifications.length > 0) {
-      await sendLongMessageDirect(bot, chatId, fileNotifications.join("\n"), 4000, "HTML");
+      const fileNotificationsText = fileNotifications.join("\n");
+      try {
+        await sendLongMessageDirect(bot, chatId, fileNotificationsText, 4000, "HTML");
+      } catch {
+        await sendLongMessageDirect(bot, chatId, fileNotificationsText, 4000);
+      }
     }
 
     if (session.voiceMode !== "off" && finalText) {
@@ -470,16 +496,26 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
     session.abortController = undefined;
     session.isQueryActive = false;
 
-    // Fetch accurate context fill from wet proxy (excludes subagent API calls)
+    // Fetch accurate context fill — wet proxy when available, dual-lane fallback otherwise.
     if (session.engine === "claude") {
-      try {
-        const wetStatus = await getWetStatus();
-        if (wetStatus && wetStatus.context_window > 0) {
-          session.wetContextTokens = wetStatus.latest_total_input_tokens;
-          session.wetContextWindow = wetStatus.context_window;
+      if (WET_DISABLED) {
+        // Dual-lane fallback: use SessionTokens (SDK events + JSONL tailing)
+        const st = getSessionTokens();
+        const latest = st.getLatest();
+        if (latest) {
+          session.wetContextTokens = latest.totalContext;
+          session.wetContextWindow = st.getContextWindow();
         }
-      } catch {
-        // best-effort — wet may not be available
+      } else {
+        try {
+          const wetStatus = await getWetStatus();
+          if (wetStatus && wetStatus.context_window > 0) {
+            session.wetContextTokens = wetStatus.latest_total_input_tokens;
+            session.wetContextWindow = wetStatus.context_window;
+          }
+        } catch {
+          // best-effort — wet may not be available
+        }
       }
 
       // Check context thresholds and warn user if needed

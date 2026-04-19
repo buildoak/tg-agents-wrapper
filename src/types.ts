@@ -1,6 +1,7 @@
 export type EngineType = "claude" | "codex";
 export type VoiceMode = "off" | "cloud" | "local";
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type CodexModel = "gpt-5.4" | "gpt-5.4-mini";
 
 export const REASONING_EFFORTS = [
   "minimal",
@@ -10,6 +11,13 @@ export const REASONING_EFFORTS = [
   "xhigh",
   "max",
 ] as const;
+
+export const CODEX_MODELS = [
+  "gpt-5.4",
+  "gpt-5.4-mini",
+] as const;
+
+export const DEFAULT_CODEX_MODEL: CodexModel = "gpt-5.4";
 
 export interface ModelUsageEntry {
   inputTokens: number;
@@ -44,6 +52,7 @@ export interface Session {
 
   /** Reasoning effort for both engines. Claude maps to thinking budget, Codex to reasoning_effort. */
   reasoningEffort?: ReasoningEffort;
+  codexModel?: CodexModel;
   showThinking?: boolean;
 
   lastModelUsage?: ModelUsage;
@@ -68,11 +77,12 @@ export interface MessageBuffer {
 
 export interface PersistedSession {
   engine: EngineType;
-  sessionId: string;
+  sessionId?: string;
   lastActivity: number;
   voiceMode?: VoiceMode;
   voiceId?: string;
   reasoningEffort?: ReasoningEffort;
+  codexModel?: CodexModel;
   showThinking?: boolean;
   lastModelUsage?: ModelUsage;
   totalCostUSD?: number;
@@ -96,4 +106,8 @@ export function normalizeVoiceMode(
 
 export function isReasoningEffort(value: unknown): value is ReasoningEffort {
   return typeof value === "string" && REASONING_EFFORTS.some((effort) => effort === value);
+}
+
+export function isCodexModel(value: unknown): value is CodexModel {
+  return typeof value === "string" && CODEX_MODELS.some((model) => model === value);
 }
