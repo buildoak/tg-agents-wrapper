@@ -11,3 +11,4 @@ sessions.json
 tmp/
 *.tgz
 private/
+BACKLOG.md
