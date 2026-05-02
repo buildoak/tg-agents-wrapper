@@ -1,7 +1,7 @@
 export type EngineType = "claude" | "codex";
 export type VoiceMode = "off" | "cloud" | "local";
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-export type CodexModel = "gpt-5.4" | "gpt-5.4-mini";
+export type CodexModel = "gpt-5.5" | "gpt-5.4" | "gpt-5.4-mini";
 
 export const REASONING_EFFORTS = [
   "minimal",
@@ -13,11 +13,12 @@ export const REASONING_EFFORTS = [
 ] as const;
 
 export const CODEX_MODELS = [
+  "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
 ] as const;
 
-export const DEFAULT_CODEX_MODEL: CodexModel = "gpt-5.4";
+export const DEFAULT_CODEX_MODEL: CodexModel = "gpt-5.5";
 
 export interface ModelUsageEntry {
   inputTokens: number;

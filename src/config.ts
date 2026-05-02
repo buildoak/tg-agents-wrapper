@@ -48,6 +48,7 @@ export const CODEX_MODEL = isCodexModel(process.env.CODEX_MODEL)
 export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-6[1m]";
 export const WET_PORT = process.env.WET_PORT || "";
 export const WET_DISABLED = process.env.WET_DISABLED === "1";
+export const TG_FORCE_DEFAULTS_ON_START = process.env.TG_FORCE_DEFAULTS_ON_START === "1";
 
 // Claude streaming input mode — persistent subprocess per session
 export const CLAUDE_STREAM_IDLE_TIMEOUT_MS = parseInt(process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS || "86400000", 10);
@@ -92,6 +93,7 @@ export const config = {
   CODEX_MODEL,
   CLAUDE_MODEL,
   WET_PORT,
+  TG_FORCE_DEFAULTS_ON_START,
   botToken: BOT_TOKEN,
   allowedUsers: ALLOWED_USERS,
   workingDir: WORKING_DIR,
@@ -115,6 +117,7 @@ export const config = {
   claudeModel: CLAUDE_MODEL,
   wetPort: WET_PORT,
   wetDisabled: WET_DISABLED,
+  forceDefaultsOnStart: TG_FORCE_DEFAULTS_ON_START,
 };
 
 validateConfig();

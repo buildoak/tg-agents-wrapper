@@ -359,15 +359,17 @@ export class CodexAdapter implements EngineAdapter {
         firstResult = await iterator.next();
       }
 
-      if (!firstResult.done) {
+      if (!firstResult.done && firstResult.value) {
         for (const event of processThreadEvent(firstResult.value)) {
           yield event;
         }
       }
 
       for (let next = await iterator.next(); !next.done; next = await iterator.next()) {
-        for (const event of processThreadEvent(next.value)) {
-          yield event;
+        if (next.value) {
+          for (const event of processThreadEvent(next.value)) {
+            yield event;
+          }
         }
       }
 

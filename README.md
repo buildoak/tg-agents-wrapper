@@ -127,8 +127,9 @@ All configuration is via environment variables. See [`.env.example`](.env.exampl
 | `WORKING_DIR` | No | Working directory for AI engines (default: `./`) |
 | `DEFAULT_ENGINE` | No | Default engine: `claude` or `codex` (default: `claude`) |
 | `CLAUDE_MODEL` | No | Claude model to use (default: `claude-opus-4-6`) |
-| `CODEX_MODEL` | No | Codex model to use (default: `gpt-5.4`) |
+| `CODEX_MODEL` | No | Codex model to use (default: `gpt-5.5`) |
 | `DEFAULT_REASONING_EFFORT` | No | Reasoning effort level: `minimal`/`low`/`medium`/`high`/`xhigh`/`max` (default: `high`) |
+| `TG_FORCE_DEFAULTS_ON_START` | No | Set `1` to migrate persisted sessions to current engine/model/effort defaults on startup |
 | `BOT_NAME` | No | Display name in bot messages (default: `Bot`) |
 | `ELEVENLABS_API_KEY` | No | ElevenLabs API key for cloud TTS |
 | `ELEVENLABS_PUBLIC_OWNER_ID` | No | ElevenLabs public owner ID for shared voices |

@@ -141,6 +141,10 @@ describe("getContextWindow", () => {
     expect(getContextWindow("gpt-5.4")).toBe(1_050_000);
   });
 
+  test("returns correct window for gpt-5.5", () => {
+    expect(getContextWindow("gpt-5.5")).toBe(272_000);
+  });
+
   test("returns default 200000 for unknown model", () => {
     expect(getContextWindow("unknown-model-xyz")).toBe(200_000);
   });

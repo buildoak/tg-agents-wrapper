@@ -67,6 +67,7 @@ export const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "claude-sonnet-4-6": 1000000,
   "codex-1": 192000,
   "gpt-4.1": 1000000,
+  "gpt-5.5": 272000,
   "gpt-5.4": 1050000,
 };
 

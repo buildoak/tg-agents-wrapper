@@ -1,6 +1,6 @@
 import { existsSync } from "fs";
 
-import { config, DEFAULT_ENGINE, DEFAULT_REASONING_EFFORT } from "../config";
+import { config, DEFAULT_ENGINE, DEFAULT_REASONING_EFFORT, CODEX_MODEL } from "../config";
 import {
   DEFAULT_CODEX_MODEL,
   isCodexModel,
@@ -105,6 +105,7 @@ export class SessionStore {
       const raw = await Bun.file(this.sessionFilePath).text();
       const data = JSON.parse(raw) as PersistedSessionRecord;
       this.sessions.clear();
+      let migratedDefaults = false;
 
       for (const [userIdStr, persisted] of Object.entries(data)) {
         const userId = Number.parseInt(userIdStr, 10);
@@ -112,17 +113,32 @@ export class SessionStore {
           continue;
         }
 
+        const persistedEngine = persisted.engine ?? DEFAULT_ENGINE;
+        const persistedCodexModel = isCodexModel(persisted.codexModel)
+          ? persisted.codexModel
+          : DEFAULT_CODEX_MODEL;
+        const engine = config.forceDefaultsOnStart ? DEFAULT_ENGINE : persistedEngine;
+        const codexModel = config.forceDefaultsOnStart ? CODEX_MODEL : persistedCodexModel;
+        const sessionId =
+          config.forceDefaultsOnStart &&
+          (persistedEngine !== engine || persistedCodexModel !== codexModel)
+            ? undefined
+            : persisted.sessionId;
+        if (config.forceDefaultsOnStart && sessionId !== persisted.sessionId) {
+          migratedDefaults = true;
+        }
+
         const restored: Session = {
-          sessionId: persisted.sessionId,
-          engine: persisted.engine ?? DEFAULT_ENGINE,
+          sessionId,
+          engine,
           lastActivity: persisted.lastActivity || Date.now(),
           wasInterruptedByNewMessage: false,
           voiceMode: normalizeVoiceMode(persisted.voiceMode),
           voiceId: persisted.voiceId || config.defaultVoiceId,
-          reasoningEffort: persisted.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
-          codexModel: isCodexModel(persisted.codexModel)
-            ? persisted.codexModel
-            : DEFAULT_CODEX_MODEL,
+          reasoningEffort: config.forceDefaultsOnStart
+            ? DEFAULT_REASONING_EFFORT
+            : persisted.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
+          codexModel,
           showThinking: persisted.showThinking ?? false,
           lastModelUsage: persisted.lastModelUsage,
           totalCostUSD: persisted.totalCostUSD || 0,
@@ -137,6 +153,10 @@ export class SessionStore {
         };
 
         this.sessions.set(userId, restored);
+      }
+
+      if (migratedDefaults) {
+        await this.save();
       }
     } catch (error) {
       console.error("Failed to load sessions:", error);
