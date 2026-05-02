@@ -276,7 +276,8 @@ export class ClaudeAdapter implements EngineAdapter {
     const cleanEnv: Record<string, string | undefined> = { ...process.env };
     delete cleanEnv.CLAUDECODE;
     cleanEnv.DISABLE_AUTO_COMPACT = "1";
-    cleanEnv.ANTHROPIC_BETAS = "context-1m-2025-08-07";
+    // Betas now set conditionally in runClaudeQuery options based on model
+    delete cleanEnv.ANTHROPIC_BETAS;
     return cleanEnv;
   }
 
@@ -345,11 +346,14 @@ export class ClaudeAdapter implements EngineAdapter {
     // loads the prior conversation history instead of starting fresh.
     const resumeSessionId = config.sessionId;
 
+    // Only request 1M context beta if model has [1m] suffix
+    const wants1M = resolvedModel.includes("[1m]");
+
     const queryInstance = runClaudeQuery({
       prompt: input,
       options: {
         model: resolvedModel,
-        betas: ["context-1m-2025-08-07"],
+        ...(wants1M ? { betas: ["context-1m-2025-08-07"] } : {}),
         cwd: config.workingDir || this.defaultWorkingDir,
         env: cleanEnv,
         settingSources: ["user", "project"],
