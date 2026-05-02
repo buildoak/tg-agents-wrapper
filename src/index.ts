@@ -32,6 +32,22 @@ import { cleanupOldFiles } from "./util/cleanup";
 import { initializeElevenLabs } from "./voice/tts-elevenlabs";
 import { isKokoroAvailable } from "./voice/tts-kokoro";
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 async function main(): Promise<void> {
   console.log("Starting TG agents wrapper bot...");
   console.log(`Working directory: ${WORKING_DIR}`);
@@ -131,7 +147,7 @@ async function main(): Promise<void> {
   });
 
   try {
-    await bot.api.setMyCommands(BOT_COMMANDS);
+    await withTimeout(bot.api.setMyCommands(BOT_COMMANDS), 10_000, "Telegram command registration");
     console.log(`Registered ${BOT_COMMANDS.length} Telegram commands`);
   } catch (error) {
     console.error("Failed to register Telegram commands:", error);
