@@ -467,6 +467,29 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
   } catch (error) {
     await clearStatus();
 
+    const partialFinalText = textDone || doneText || streamedRawText;
+    const hasRecoverableFileMarker = /\[SEND_FILE:[^\]]+\]/.test(partialFinalText);
+    let recoveredFiles = false;
+    if (hasRecoverableFileMarker) {
+      try {
+        const { fileNotifications } = await sendFilesToUser(bot, chatId, partialFinalText);
+        recoveredFiles = fileNotifications.length > 0;
+        if (recoveredFiles) {
+          const recoveryText = [
+            ...fileNotifications,
+            "Recovered file delivery from partial engine response after stream disconnect.",
+          ].join("\n");
+          try {
+            await sendLongMessageDirect(bot, chatId, markdownToTelegramHTML(recoveryText), 4000, "HTML");
+          } catch {
+            await sendLongMessageDirect(bot, chatId, recoveryText, 4000);
+          }
+        }
+      } catch (fileError) {
+        console.error("Partial response file recovery failed:", fileError);
+      }
+    }
+
     const errorText = String(error).toLowerCase();
     if (errorText.includes("abort") || errorText.includes("cancel") || errorText.includes("interrupt")) {
       const wasInterrupt = consumeInterruptFlag(session);
@@ -486,7 +509,11 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
       } else {
         console.error("Query error:", error);
         const message = error instanceof Error ? error.message : String(error);
-        await bot.api.sendMessage(chatId, `Error: ${message}`);
+        if (!recoveredFiles) {
+          await bot.api.sendMessage(chatId, `Error: ${message}`);
+        } else {
+          await bot.api.sendMessage(chatId, `Engine stream disconnected after producing a file marker; recovered file send. Original error: ${message}`);
+        }
       }
     }
   } finally {
