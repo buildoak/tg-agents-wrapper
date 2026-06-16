@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 process.env.TGBOT_API_KEY = "test-token-for-tests";
 process.env.TGBOT_ALLOWED_USERS = "123";
+delete process.env.TG_FORCE_DEFAULTS_ON_START;
 
 const { createBot } = await import("./bot");
 const { SessionStore } = await import("./session/store");

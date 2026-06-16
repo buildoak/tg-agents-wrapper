@@ -5,6 +5,7 @@ import {
   ALLOWED_USERS,
   BOT_NAME,
   BOT_TOKEN,
+  CODEX_FALLBACK_MODELS,
   CLAUDE_MODEL,
   CODEX_MODEL,
   DEFAULT_ENGINE,
@@ -29,6 +30,7 @@ import { abortUserQuery } from "./session/lifecycle";
 import { SessionStore } from "./session/store";
 import { type EngineType } from "./types";
 import { cleanupOldFiles } from "./util/cleanup";
+import { logError } from "./util/logging";
 import { initializeElevenLabs } from "./voice/tts-elevenlabs";
 import { isKokoroAvailable } from "./voice/tts-kokoro";
 
@@ -55,6 +57,7 @@ async function main(): Promise<void> {
   console.log(`Session file: ${SESSION_FILE}`);
   console.log(`Claude model: ${CLAUDE_MODEL}`);
   console.log(`Codex model: ${CODEX_MODEL}`);
+  console.log(`Codex fallback models: ${CODEX_FALLBACK_MODELS.join(", ") || "(none)"}`);
   console.log(`Default engine: ${DEFAULT_ENGINE}`);
   console.log(`Default reasoning effort: ${DEFAULT_REASONING_EFFORT}`);
 
@@ -83,6 +86,7 @@ async function main(): Promise<void> {
     sandboxMode: "danger-full-access",
     networkAccess: true,
     reasoningEffort: DEFAULT_REASONING_EFFORT,
+    fallbackModels: CODEX_FALLBACK_MODELS,
   });
 
   const engines: Record<EngineType, EngineAdapter> = {
@@ -145,13 +149,6 @@ async function main(): Promise<void> {
       },
     },
   });
-
-  try {
-    await withTimeout(bot.api.setMyCommands(BOT_COMMANDS), 10_000, "Telegram command registration");
-    console.log(`Registered ${BOT_COMMANDS.length} Telegram commands`);
-  } catch (error) {
-    console.error("Failed to register Telegram commands:", error);
-  }
 
   let isShuttingDown = false;
 
@@ -232,9 +229,19 @@ async function main(): Promise<void> {
       console.log(`${BOT_NAME} started, old updates dropped`);
     },
   });
+
+  setTimeout(() => {
+    void withTimeout(bot.api.setMyCommands(BOT_COMMANDS), 10_000, "Telegram command registration")
+      .then(() => {
+        console.log(`Registered ${BOT_COMMANDS.length} Telegram commands`);
+      })
+      .catch((error) => {
+        logError("Failed to register Telegram commands:", error);
+      });
+  }, 1_000);
 }
 
 void main().catch((error) => {
-  console.error("Fatal startup error:", error);
+  logError("Fatal startup error:", error);
   process.exit(1);
 });

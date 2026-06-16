@@ -62,7 +62,9 @@ export function wrapMessage(
   voiceMode: VoiceMode,
   meta?: WrapMessageMeta
 ): string {
-  const tag = meta?.mediaType === "voice" ? "tg_message_voice" : "tg_message";
+  const tag = meta?.mediaType === "voice" || voiceMode === "cloud" || voiceMode === "local"
+    ? "tg_message_voice"
+    : "tg_message";
 
   const attrs: string[] = [];
   if (meta?.username) attrs.push(`from="${escapeXmlAttr(meta.username)}"`);

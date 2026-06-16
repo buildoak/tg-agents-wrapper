@@ -1,4 +1,4 @@
-import { Bot, InlineKeyboard } from "grammy";
+import { Bot, InlineKeyboard, type Context } from "grammy";
 
 import { BufferManager } from "./buffer/message-buffer";
 import { MediaGroupCollector } from "./buffer/media-group";
@@ -24,6 +24,7 @@ import {
 import { getWetStatus, isWetAvailable, killWetProcess, restartWetServe } from "./integrations/wet";
 import { type OpenAITranscriptionClient } from "./voice/transcribe";
 import { type TTSRouterConfig } from "./voice/tts-router";
+import { logError, redactSecrets } from "./util/logging";
 
 /** Map internal effort name to what the API actually receives */
 function displayEffort(effort?: string): string {
@@ -62,6 +63,7 @@ export const BOT_COMMANDS = [
   { command: "engine", description: "Switch engine" },
   { command: "model", description: "Switch Codex model" },
   { command: "effort", description: "Switch reasoning effort" },
+  { command: "goal", description: "Show, set, or clear the current goal" },
   { command: "thinking", description: "Toggle thinking visibility" },
 ] satisfies Array<{ command: string; description: string }>;
 
@@ -105,6 +107,48 @@ function parseCommandArg(text: string, command: string): string {
   return text.replace(new RegExp(`^/${command}(?:@\\w+)?\\s*`), "").trim();
 }
 
+function truncateGoal(goal: string, max = 900): string {
+  return goal.length <= max ? goal : `${goal.slice(0, max - 3)}...`;
+}
+
+function logUnauthorizedUpdate(ctx: Context, userId?: number): void {
+  const message = ctx.message as {
+    message_id?: number;
+    date?: number;
+    text?: string;
+    caption?: string;
+    photo?: unknown;
+    voice?: unknown;
+    document?: unknown;
+  } | undefined;
+  const from = ctx.from;
+  const chat = ctx.chat;
+  const preview = message?.text ?? message?.caption ?? "";
+  const messageType = message?.voice
+    ? "voice"
+    : message?.photo
+      ? "photo"
+      : message?.document
+        ? "document"
+        : message?.text
+          ? "text"
+          : "unknown";
+
+  console.warn("[unauthorized_update]", JSON.stringify({
+    ts: new Date().toISOString(),
+    userId,
+    username: from?.username,
+    firstName: from?.first_name,
+    lastName: from?.last_name,
+    languageCode: from?.language_code,
+    chatId: chat?.id,
+    messageId: message?.message_id,
+    telegramDate: message?.date,
+    messageType,
+    textPreview: preview.slice(0, 240),
+  }));
+}
+
 function getAdapter(engines: Record<EngineType, EngineAdapter>, engine: EngineType): EngineAdapter {
   return engines[engine] ?? engines.claude;
 }
@@ -119,7 +163,7 @@ function resetQueryState(session: Session): void {
 export function createBot(deps: CreateBotDeps): CreatedBot {
   const bot = new Bot(deps.token);
   bot.catch((error) => {
-    console.error("Bot handler error:", error.error);
+    logError("Bot handler error:", error.error);
   });
 
   const bufferManager = new BufferManager({
@@ -169,7 +213,12 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
   bot.use(async (ctx, next) => {
     const userId = ctx.from?.id;
     if (!userId || !isAuthorized(userId)) {
-      await ctx.reply(`Unauthorized. Your user ID: ${userId}`);
+      logUnauthorizedUpdate(ctx, userId);
+      try {
+        await ctx.reply(`Unauthorized. Your user ID: ${userId}`);
+      } catch (error) {
+        console.warn("[unauthorized_reply_failed]", redactSecrets(error));
+      }
       return;
     }
 
@@ -300,6 +349,9 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
       status += `\nEffort: ${displayEffort(session.reasoningEffort)}`;
       status += `\nMode: ${modeLabel(session.voiceMode)}`;
       status += `\nBatch delay: ${Math.round(session.batchDelayMs / 1000)}s`;
+      if (session.goal?.trim()) {
+        status += `\nGoal: ${truncateGoal(session.goal, 180)}`;
+      }
     }
 
     status += `\nVoice transcription: ${deps.openaiClient ? "✅ enabled" : "❌ disabled"}`;
@@ -590,6 +642,38 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
     await deps.store.save();
 
     await ctx.reply(`Reasoning effort set to: ${arg}`);
+  });
+
+  bot.command("goal", async (ctx) => {
+    const userId = ctx.from?.id;
+    const text = (ctx.message as { text?: string } | undefined)?.text;
+    if (!userId || !text) return;
+
+    const session = deps.store.get(userId);
+    const arg = parseCommandArg(text, "goal");
+    const normalized = arg.trim();
+
+    if (!normalized) {
+      await ctx.reply(
+        session.goal?.trim()
+          ? `Current goal:\n${truncateGoal(session.goal)}`
+          : "No current goal. Usage: /goal <goal>, or /goal clear"
+      );
+      return;
+    }
+
+    if (/^(clear|reset|off|none)$/i.test(normalized)) {
+      session.goal = undefined;
+      deps.store.set(userId, session);
+      await deps.store.save();
+      await ctx.reply("Goal cleared.");
+      return;
+    }
+
+    session.goal = normalized;
+    deps.store.set(userId, session);
+    await deps.store.save();
+    await ctx.reply(`Goal set:\n${truncateGoal(session.goal)}`);
   });
 
   bot.command("thinking", async (ctx) => {

@@ -22,6 +22,7 @@ import {
 
 type CodexAdapterConfig = CodexEngineConfig & {
   apiKey?: string;
+  fallbackModels?: string[];
 };
 
 type CodexToolItem = CommandExecutionItem | FileChangeItem | McpToolCallItem | WebSearchItem;
@@ -122,11 +123,31 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isCapacityError(message: string): boolean {
+  return /selected model is at capacity|model .*capacity|capacity\. please try/i.test(message);
+}
+
+function isAuthRefreshError(message: string): boolean {
+  return /refresh token (was revoked|was already used|could not be refreshed)/i.test(message);
+}
+
+function isStreamDisconnectError(message: string): boolean {
+  return /stream disconnected before completion|websocket closed by server before response\.completed|reconnecting\.\.\./i.test(message);
+}
+
+class RetryableCodexError extends Error {
+  constructor(message: string, readonly kind: "capacity" | "auth-refresh" | "stream-disconnect") {
+    super(message);
+  }
+}
+
 export class CodexAdapter implements EngineAdapter {
   readonly name = "codex" as const;
 
-  private readonly codex: Codex;
+  private codex: Codex;
   private readonly defaultModel: string;
+  private readonly fallbackModels: string[];
+  private readonly apiKey?: string;
   private readonly defaultWorkingDir: string;
   private readonly sandboxMode: CodexEngineConfig["sandboxMode"];
   private readonly networkAccess: boolean;
@@ -134,19 +155,25 @@ export class CodexAdapter implements EngineAdapter {
   private currentThreadId?: string;
 
   constructor(config: CodexAdapterConfig) {
+    this.apiKey = config.apiKey;
+    this.codex = this.createCodexClient(this.apiKey);
+
+    this.defaultModel = config.model;
+    this.fallbackModels = [...new Set(config.fallbackModels ?? [])].filter((model) => model !== config.model);
+    this.defaultWorkingDir = config.workingDir;
+    this.sandboxMode = config.sandboxMode ?? "workspace-write";
+    this.networkAccess = config.networkAccess ?? true;
+    this.reasoningEffort = mapCodexEffort(config.reasoningEffort) ?? "medium";
+  }
+
+  private createCodexClient(apiKey?: string): Codex {
     // Pass parent env so subprocesses (gaal, agent-mux) inherit API keys.
     const env = Object.fromEntries(
       Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string")
     );
     const codexOpts: CodexClientOptions = { env };
-    if (config.apiKey) codexOpts.apiKey = config.apiKey;
-    this.codex = new Codex(codexOpts);
-
-    this.defaultModel = config.model;
-    this.defaultWorkingDir = config.workingDir;
-    this.sandboxMode = config.sandboxMode ?? "workspace-write";
-    this.networkAccess = config.networkAccess ?? true;
-    this.reasoningEffort = mapCodexEffort(config.reasoningEffort) ?? "medium";
+    if (apiKey) codexOpts.apiKey = apiKey;
+    return new Codex(codexOpts);
   }
 
   getSessionId(): string | undefined {
@@ -162,23 +189,19 @@ export class CodexAdapter implements EngineAdapter {
   }
 
   async *query(config: QueryConfig): AsyncGenerator<NormalizedEvent, void, void> {
-    const model = config.model ?? this.defaultModel;
+    const initialModel = config.model ?? this.defaultModel;
+    const modelsToTry = [initialModel, ...this.fallbackModels.filter((model) => model !== initialModel)];
     const prompt = config.prompt;
     const input = createUserInput(prompt, config.images);
-    const threadOptions: ThreadOptions = {
-      model,
-      workingDirectory: config.workingDir || this.defaultWorkingDir,
-      sandboxMode: this.sandboxMode,
-      modelReasoningEffort: mapCodexEffort(config.reasoningEffort) ?? this.reasoningEffort,
-      networkAccessEnabled: this.networkAccess,
-      approvalPolicy: "never",
-    };
 
     let resumeThreadId = config.sessionId;
     let fullText = "";
     let emittedSessionStarted = false;
+    let sawToolEvent = false;
+    let streamDisconnectRetries = 0;
+    let authRefreshRetries = 0;
 
-    const processThreadEvent = (event: ThreadEvent): NormalizedEvent[] => {
+    const processThreadEvent = (event: ThreadEvent, activeModel: string): NormalizedEvent[] => {
       const normalized: NormalizedEvent[] = [];
 
       if (event.type === "thread.started") {
@@ -211,18 +234,25 @@ export class CodexAdapter implements EngineAdapter {
           outputTokens,
           cachedInputTokens,
           cacheCreationInputTokens: 0,
-          costUSD: calculateCost(model, usage),
-          contextWindowSize: getContextWindow(model),
-          model,
+          costUSD: calculateCost(activeModel, usage),
+          contextWindowSize: getContextWindow(activeModel),
+          model: activeModel,
           raw: event,
         });
         return normalized;
       }
 
       if (event.type === "turn.failed") {
+        const message = event.error.message || "Codex turn failed.";
+        if (isCapacityError(message)) {
+          throw new RetryableCodexError(message, "capacity");
+        }
+        if (isAuthRefreshError(message)) {
+          throw new RetryableCodexError(message, "auth-refresh");
+        }
         normalized.push({
           type: "error",
-          message: event.error.message || "Codex turn failed.",
+          message,
           fatal: true,
           raw: event,
         });
@@ -230,9 +260,19 @@ export class CodexAdapter implements EngineAdapter {
       }
 
       if (event.type === "error") {
+        const message = event.message || "Codex stream error.";
+        if (isCapacityError(message)) {
+          throw new RetryableCodexError(message, "capacity");
+        }
+        if (isAuthRefreshError(message)) {
+          throw new RetryableCodexError(message, "auth-refresh");
+        }
+        if (isStreamDisconnectError(message)) {
+          throw new RetryableCodexError(message, "stream-disconnect");
+        }
         normalized.push({
           type: "error",
-          message: event.message || "Codex stream error.",
+          message,
           fatal: true,
           raw: event,
         });
@@ -267,6 +307,15 @@ export class CodexAdapter implements EngineAdapter {
       }
 
       if (item.type === "error" && event.type === "item.completed") {
+        if (isCapacityError(item.message)) {
+          throw new RetryableCodexError(item.message, "capacity");
+        }
+        if (isAuthRefreshError(item.message)) {
+          throw new RetryableCodexError(item.message, "auth-refresh");
+        }
+        if (isStreamDisconnectError(item.message)) {
+          throw new RetryableCodexError(item.message, "stream-disconnect");
+        }
         normalized.push({
           type: "error",
           message: item.message,
@@ -281,6 +330,7 @@ export class CodexAdapter implements EngineAdapter {
       }
 
       const toolId = item.id;
+      sawToolEvent = true;
       const resolvedToolName = toolName(item);
       const toolCategory = mapToolCategory(item);
 
@@ -307,11 +357,21 @@ export class CodexAdapter implements EngineAdapter {
     };
 
     const startStream = async (
+      activeModel: string,
       threadId?: string
     ): Promise<{
       thread: Thread;
       iterator: AsyncIterator<ThreadEvent, void, void>;
     }> => {
+      const threadOptions: ThreadOptions = {
+        model: activeModel,
+        workingDirectory: config.workingDir || this.defaultWorkingDir,
+        sandboxMode: this.sandboxMode,
+        modelReasoningEffort: mapCodexEffort(config.reasoningEffort) ?? this.reasoningEffort,
+        networkAccessEnabled: this.networkAccess,
+        approvalPolicy: "never",
+      };
+
       const thread = threadId
         ? this.codex.resumeThread(threadId, threadOptions)
         : this.codex.startThread(threadOptions);
@@ -331,56 +391,130 @@ export class CodexAdapter implements EngineAdapter {
     };
 
     try {
-      let thread: Thread;
-      let iterator: AsyncIterator<ThreadEvent, void, void>;
+      let modelIndex = 0;
 
-      try {
-        ({ thread, iterator } = await startStream(resumeThreadId));
-      } catch (error) {
-        if (!resumeThreadId) {
-          throw error;
-        }
+      while (modelIndex < modelsToTry.length) {
+        const activeModel = modelsToTry[modelIndex] ?? initialModel;
+        let thread: Thread;
+        let iterator: AsyncIterator<ThreadEvent, void, void>;
 
-        resumeThreadId = undefined;
-        ({ thread, iterator } = await startStream(undefined));
-      }
+        try {
+          try {
+            ({ thread, iterator } = await startStream(activeModel, resumeThreadId));
+          } catch (error) {
+            if (!resumeThreadId) {
+              throw error;
+            }
 
-      let firstResult: IteratorResult<ThreadEvent, void>;
-
-      try {
-        firstResult = await iterator.next();
-      } catch (error) {
-        if (!resumeThreadId) {
-          throw error;
-        }
-
-        resumeThreadId = undefined;
-        ({ thread, iterator } = await startStream(undefined));
-        firstResult = await iterator.next();
-      }
-
-      if (!firstResult.done && firstResult.value) {
-        for (const event of processThreadEvent(firstResult.value)) {
-          yield event;
-        }
-      }
-
-      for (let next = await iterator.next(); !next.done; next = await iterator.next()) {
-        if (next.value) {
-          for (const event of processThreadEvent(next.value)) {
-            yield event;
+            resumeThreadId = undefined;
+            ({ thread, iterator } = await startStream(activeModel, undefined));
           }
+
+          let firstResult: IteratorResult<ThreadEvent, void>;
+
+          try {
+            firstResult = await iterator.next();
+          } catch (error) {
+            if (!resumeThreadId) {
+              throw error;
+            }
+
+            resumeThreadId = undefined;
+            ({ thread, iterator } = await startStream(activeModel, undefined));
+            firstResult = await iterator.next();
+          }
+
+          if (!firstResult.done && firstResult.value) {
+            for (const event of processThreadEvent(firstResult.value, activeModel)) {
+              yield event;
+            }
+          }
+
+          for (let next = await iterator.next(); !next.done; next = await iterator.next()) {
+            if (next.value) {
+              for (const event of processThreadEvent(next.value, activeModel)) {
+                yield event;
+              }
+            }
+          }
+
+          if (thread.id) {
+            this.currentThreadId = thread.id;
+          }
+
+          yield {
+            type: "done",
+            fullText,
+          };
+          return;
+        } catch (error) {
+          const message = toErrorMessage(error);
+          const kind = error instanceof RetryableCodexError
+            ? error.kind
+            : isCapacityError(message)
+              ? "capacity"
+              : isAuthRefreshError(message)
+                ? "auth-refresh"
+                : isStreamDisconnectError(message)
+                  ? "stream-disconnect"
+                  : null;
+
+          if (kind === "capacity" && modelIndex < modelsToTry.length - 1 && !sawToolEvent && !fullText.trim()) {
+            const failedModel = activeModel;
+            modelIndex += 1;
+            const fallbackModel = modelsToTry[modelIndex] ?? initialModel;
+            resumeThreadId = undefined;
+            fullText = "";
+            emittedSessionStarted = false;
+            sawToolEvent = false;
+            yield {
+              type: "error",
+              message: `Codex model ${failedModel} is at capacity; retrying with ${fallbackModel}.`,
+              fatal: false,
+            };
+            continue;
+          }
+
+          if (kind === "auth-refresh" && authRefreshRetries < 1 && !sawToolEvent && !fullText.trim()) {
+            authRefreshRetries += 1;
+            resumeThreadId = undefined;
+            this.codex = this.createCodexClient(this.apiKey);
+            yield {
+              type: "error",
+              message: "Codex auth token refresh failed; reloading local Codex auth and retrying once.",
+              fatal: false,
+            };
+            continue;
+          }
+
+          if (kind === "stream-disconnect" && fullText.trim()) {
+            yield {
+              type: "error",
+              message: "Codex stream disconnected after partial output; sending recovered partial response.",
+              fatal: false,
+            };
+            yield {
+              type: "done",
+              fullText,
+            };
+            return;
+          }
+
+          if (kind === "stream-disconnect" && streamDisconnectRetries < 1 && !sawToolEvent && !fullText.trim()) {
+            streamDisconnectRetries += 1;
+            resumeThreadId = undefined;
+            emittedSessionStarted = false;
+            yield {
+              type: "error",
+              message: "Codex stream disconnected before output; retrying once in a fresh thread.",
+              fatal: false,
+            };
+            continue;
+          }
+
+          throw error;
         }
       }
-
-      if (thread.id) {
-        this.currentThreadId = thread.id;
-      }
-
-      yield {
-        type: "done",
-        fullText,
-      };
     } catch (error) {
       yield {
         type: "error",

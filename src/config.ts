@@ -1,7 +1,9 @@
 import { existsSync, mkdirSync } from "fs";
 
 import {
+  CODEX_MODELS,
   DEFAULT_CODEX_MODEL,
+  type CodexModel,
   isCodexModel,
   isReasoningEffort,
   type ReasoningEffort,
@@ -42,6 +44,11 @@ export const DEFAULT_REASONING_EFFORT: ReasoningEffort =
 export const CODEX_MODEL = isCodexModel(process.env.CODEX_MODEL)
   ? process.env.CODEX_MODEL
   : DEFAULT_CODEX_MODEL;
+export const CODEX_FALLBACK_MODELS: CodexModel[] = (
+  process.env.CODEX_FALLBACK_MODELS
+    ? process.env.CODEX_FALLBACK_MODELS.split(",").map((model) => model.trim())
+    : CODEX_MODELS
+).filter((model): model is CodexModel => isCodexModel(model) && model !== CODEX_MODEL);
 // The [1m] suffix triggers the SDK's internal 1M context pipeline.
 // The SDK strips [1m] before sending to the API (model ID remains claude-sonnet-4-6),
 // but the suffix is required for the full 1M beta to activate at the API level.
@@ -91,6 +98,7 @@ export const config = {
   DEFAULT_ENGINE,
   DEFAULT_REASONING_EFFORT,
   CODEX_MODEL,
+  CODEX_FALLBACK_MODELS,
   CLAUDE_MODEL,
   WET_PORT,
   TG_FORCE_DEFAULTS_ON_START,
@@ -114,6 +122,7 @@ export const config = {
   defaultEngine: DEFAULT_ENGINE,
   defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
   codexModel: CODEX_MODEL,
+  codexFallbackModels: CODEX_FALLBACK_MODELS,
   claudeModel: CLAUDE_MODEL,
   wetPort: WET_PORT,
   wetDisabled: WET_DISABLED,

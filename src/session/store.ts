@@ -53,7 +53,9 @@ export class SessionStore {
 
     for (const [userId, session] of this.sessions.entries()) {
       const shouldPersist =
-        Boolean(session.sessionId) || session.codexModel !== DEFAULT_CODEX_MODEL;
+        Boolean(session.sessionId) ||
+        session.codexModel !== DEFAULT_CODEX_MODEL ||
+        Boolean(session.goal?.trim());
 
       if (!shouldPersist) {
         continue;
@@ -68,6 +70,7 @@ export class SessionStore {
         reasoningEffort: session.reasoningEffort,
         codexModel: session.codexModel,
         showThinking: session.showThinking,
+        goal: session.goal,
         lastModelUsage: session.lastModelUsage,
         totalCostUSD: session.totalCostUSD,
         lastInputTokens: session.lastInputTokens,
@@ -140,6 +143,7 @@ export class SessionStore {
             : persisted.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
           codexModel,
           showThinking: persisted.showThinking ?? false,
+          goal: persisted.goal,
           lastModelUsage: persisted.lastModelUsage,
           totalCostUSD: persisted.totalCostUSD || 0,
           lastInputTokens: persisted.lastInputTokens || 0,
@@ -173,6 +177,7 @@ export class SessionStore {
       reasoningEffort: DEFAULT_REASONING_EFFORT,
       codexModel: DEFAULT_CODEX_MODEL,
       showThinking: false,
+      goal: undefined,
       totalCostUSD: 0,
       lastInputTokens: 0,
       cumulativeInputTokens: 0,

@@ -55,6 +55,7 @@ export interface Session {
   reasoningEffort?: ReasoningEffort;
   codexModel?: CodexModel;
   showThinking?: boolean;
+  goal?: string;
 
   lastModelUsage?: ModelUsage;
   totalCostUSD: number;
@@ -85,6 +86,7 @@ export interface PersistedSession {
   reasoningEffort?: ReasoningEffort;
   codexModel?: CodexModel;
   showThinking?: boolean;
+  goal?: string;
   lastModelUsage?: ModelUsage;
   totalCostUSD?: number;
   lastInputTokens?: number;

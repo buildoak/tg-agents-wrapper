@@ -191,6 +191,15 @@ function isInternalNoise(text: string): boolean {
   return NOISE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+function applySessionGoal(prompt: string, goal?: string): string {
+  const trimmedGoal = goal?.trim();
+  if (!trimmedGoal) {
+    return prompt;
+  }
+
+  return `<current_goal>\n${trimmedGoal}\n</current_goal>\n\n${prompt}`;
+}
+
 export interface ProcessQueryOptions {
   adapter: EngineAdapter;
   session: Session;
@@ -289,7 +298,7 @@ export async function processQuery(options: ProcessQueryOptions): Promise<void> 
       : { engineImages: [] as EngineImageInput[] };
 
     const queryConfig = {
-      prompt,
+      prompt: applySessionGoal(prompt, session.goal),
       images: engineImages.length > 0 ? engineImages : undefined,
       sessionId: session.sessionId,
       workingDir,
