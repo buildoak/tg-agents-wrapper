@@ -11,9 +11,11 @@ Built with [Bun](https://bun.sh) and [grammY](https://grammy.dev).
 - **Multi-engine** -- switch between Claude and Codex mid-conversation with `/engine`
 - **Voice I/O** -- Whisper transcription + dual TTS pipeline (ElevenLabs cloud or Kokoro local)
 - **Message batching** -- collects rapid-fire Telegram messages into a single prompt (configurable delay)
+- **Goal steering** -- `/goal` stores a persistent session objective and injects it into future prompts until cleared
 - **Context monitoring** -- track token usage, cache stats, and context window fill via `/context`
 - **Wet proxy integration** -- routes Claude API calls through [wet](https://github.com/anthropics/wet) for context compression; automatic healthcheck every 30 s with silent fallback to direct Anthropic if wet is down; `/context` shows compression stats (items compressed, tokens saved)
 - **Session resilience** -- stale session UUID recovery: adapter buffers the new session ID until the first successful API response, then commits it; dead sessions are auto-cleared so the next query starts fresh without manual `/start`
+- **Codex resilience** -- capacity fallback, empty-disconnect retry, partial-output recovery, and one-shot auth reload for token refresh races
 - **Session persistence** -- sessions survive bot restarts (JSON file)
 - **Photo and document support** -- send images and files directly to the AI
 - **Graceful shutdown** -- saves sessions and aborts running queries on SIGINT/SIGTERM
@@ -55,6 +57,7 @@ bun run start
 | `/interrupt` | Abort the running query, keep session |
 | `/engine [claude\|codex]` | Show or switch AI engine |
 | `/context` | Show token usage and context window stats |
+| `/goal [text\|clear]` | Show, set, or clear the persistent session goal |
 | `/effort [level]` | Set reasoning effort (minimal/low/medium/high/xhigh/max) |
 | `/mode` | Switch between text and voice modes |
 | `/voice [id]` | Show or change the TTS voice ID |
@@ -128,6 +131,7 @@ All configuration is via environment variables. See [`.env.example`](.env.exampl
 | `DEFAULT_ENGINE` | No | Default engine: `claude` or `codex` (default: `claude`) |
 | `CLAUDE_MODEL` | No | Claude model to use (default: `claude-opus-4-6`) |
 | `CODEX_MODEL` | No | Codex model to use (default: `gpt-5.5`) |
+| `CODEX_FALLBACK_MODELS` | No | Comma-separated Codex fallback models for capacity errors before tool side effects begin |
 | `DEFAULT_REASONING_EFFORT` | No | Reasoning effort level: `minimal`/`low`/`medium`/`high`/`xhigh`/`max` (default: `high`) |
 | `TG_FORCE_DEFAULTS_ON_START` | No | Set `1` to migrate persisted sessions to current engine/model/effort defaults on startup |
 | `BOT_NAME` | No | Display name in bot messages (default: `Bot`) |
@@ -148,6 +152,9 @@ bun run dev
 
 # Type check
 bun run check
+
+# Test
+bun test
 ```
 
 ## License

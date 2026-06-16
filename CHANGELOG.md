@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0 (2026-06-17)
+
+- Add `/goal` for persistent session-level goal steering; future prompts include the active goal until it is cleared.
+- Add Codex capacity fallback: `CODEX_MODEL` can fall through `CODEX_FALLBACK_MODELS` before tool side effects begin.
+- Harden Codex stream handling by preserving partial output, retrying empty stream disconnects once, and refreshing the Codex client once for auth-token races.
+- Start Telegram polling before best-effort command registration so Bot API command menu timeouts do not block the bot.
+- Add structured unauthorized-user logging and redact Telegram bot tokens from logs.
+- Fix the voice-mode message wrapping regression.
+
 ## 1.1.0 (2026-04-20)
 
 - Default Claude model switched from `claude-opus-4-6[1m]` to `claude-sonnet-4-6[1m]`. Sonnet is sufficient for Telegram chat work and substantially cheaper; override via `CLAUDE_MODEL` env var if you want Opus.
