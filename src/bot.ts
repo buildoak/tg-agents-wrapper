@@ -63,7 +63,7 @@ export const BOT_COMMANDS = [
   { command: "engine", description: "Switch engine" },
   { command: "model", description: "Switch Codex model" },
   { command: "effort", description: "Switch reasoning effort" },
-  { command: "goal", description: "Show, set, or clear the current goal" },
+  { command: "tg_goal", description: "Show, set, or clear the local TG goal" },
   { command: "thinking", description: "Toggle thinking visibility" },
 ] satisfies Array<{ command: string; description: string }>;
 
@@ -350,7 +350,7 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
       status += `\nMode: ${modeLabel(session.voiceMode)}`;
       status += `\nBatch delay: ${Math.round(session.batchDelayMs / 1000)}s`;
       if (session.goal?.trim()) {
-        status += `\nGoal: ${truncateGoal(session.goal, 180)}`;
+        status += `\nTG goal: ${truncateGoal(session.goal, 180)}`;
       }
     }
 
@@ -644,20 +644,20 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
     await ctx.reply(`Reasoning effort set to: ${arg}`);
   });
 
-  bot.command("goal", async (ctx) => {
+  bot.command("tg_goal", async (ctx) => {
     const userId = ctx.from?.id;
     const text = (ctx.message as { text?: string } | undefined)?.text;
     if (!userId || !text) return;
 
     const session = deps.store.get(userId);
-    const arg = parseCommandArg(text, "goal");
+    const arg = parseCommandArg(text, "tg_goal");
     const normalized = arg.trim();
 
     if (!normalized) {
       await ctx.reply(
         session.goal?.trim()
-          ? `Current goal:\n${truncateGoal(session.goal)}`
-          : "No current goal. Usage: /goal <goal>, or /goal clear"
+          ? `Current TG goal:\n${truncateGoal(session.goal)}`
+          : "No current TG goal. Usage: /tg_goal <goal>, or /tg_goal clear"
       );
       return;
     }
@@ -666,14 +666,14 @@ export function createBot(deps: CreateBotDeps): CreatedBot {
       session.goal = undefined;
       deps.store.set(userId, session);
       await deps.store.save();
-      await ctx.reply("Goal cleared.");
+      await ctx.reply("TG goal cleared.");
       return;
     }
 
     session.goal = normalized;
     deps.store.set(userId, session);
     await deps.store.save();
-    await ctx.reply(`Goal set:\n${truncateGoal(session.goal)}`);
+    await ctx.reply(`TG goal set:\n${truncateGoal(session.goal)}`);
   });
 
   bot.command("thinking", async (ctx) => {

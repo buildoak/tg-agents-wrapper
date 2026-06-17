@@ -2,7 +2,8 @@
 
 ## 1.2.0 (2026-06-17)
 
-- Add `/goal` for persistent session-level goal steering; future prompts include the active goal until it is cleared.
+- Add `/tg_goal` for local persistent Telegram-session goal steering; future prompts include the active TG goal until it is cleared.
+- Enable Codex native goal mode for SDK-spawned Codex child processes.
 - Add Codex capacity fallback: `CODEX_MODEL` can fall through `CODEX_FALLBACK_MODELS` before tool side effects begin.
 - Harden Codex stream handling by preserving partial output, retrying empty stream disconnects once, and refreshing the Codex client once for auth-token races.
 - Start Telegram polling before best-effort command registration so Bot API command menu timeouts do not block the bot.

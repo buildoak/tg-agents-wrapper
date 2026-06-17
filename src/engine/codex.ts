@@ -171,7 +171,14 @@ export class CodexAdapter implements EngineAdapter {
     const env = Object.fromEntries(
       Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string")
     );
-    const codexOpts: CodexClientOptions = { env };
+    const codexOpts: CodexClientOptions = {
+      env,
+      config: {
+        features: {
+          goals: true,
+        },
+      },
+    };
     if (apiKey) codexOpts.apiKey = apiKey;
     return new Codex(codexOpts);
   }

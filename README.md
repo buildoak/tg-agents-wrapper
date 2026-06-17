@@ -11,11 +11,11 @@ Built with [Bun](https://bun.sh) and [grammY](https://grammy.dev).
 - **Multi-engine** -- switch between Claude and Codex mid-conversation with `/engine`
 - **Voice I/O** -- Whisper transcription + dual TTS pipeline (ElevenLabs cloud or Kokoro local)
 - **Message batching** -- collects rapid-fire Telegram messages into a single prompt (configurable delay)
-- **Goal steering** -- `/goal` stores a persistent session objective and injects it into future prompts until cleared
+- **Local TG goal steering** -- `/tg_goal` stores a persistent Telegram-session objective and injects it into future prompts until cleared
 - **Context monitoring** -- track token usage, cache stats, and context window fill via `/context`
 - **Wet proxy integration** -- routes Claude API calls through [wet](https://github.com/anthropics/wet) for context compression; automatic healthcheck every 30 s with silent fallback to direct Anthropic if wet is down; `/context` shows compression stats (items compressed, tokens saved)
 - **Session resilience** -- stale session UUID recovery: adapter buffers the new session ID until the first successful API response, then commits it; dead sessions are auto-cleared so the next query starts fresh without manual `/start`
-- **Codex resilience** -- capacity fallback, empty-disconnect retry, partial-output recovery, and one-shot auth reload for token refresh races
+- **Codex resilience** -- capacity fallback, empty-disconnect retry, partial-output recovery, native goal-mode enablement, and one-shot auth reload for token refresh races
 - **Session persistence** -- sessions survive bot restarts (JSON file)
 - **Photo and document support** -- send images and files directly to the AI
 - **Graceful shutdown** -- saves sessions and aborts running queries on SIGINT/SIGTERM
@@ -57,13 +57,16 @@ bun run start
 | `/interrupt` | Abort the running query, keep session |
 | `/engine [claude\|codex]` | Show or switch AI engine |
 | `/context` | Show token usage and context window stats |
-| `/goal [text\|clear]` | Show, set, or clear the persistent session goal |
+| `/tg_goal [text\|clear]` | Show, set, or clear the local persistent Telegram-session goal |
 | `/effort [level]` | Set reasoning effort (minimal/low/medium/high/xhigh/max) |
 | `/mode` | Switch between text and voice modes |
 | `/voice [id]` | Show or change the TTS voice ID |
 | `/batch` | Toggle batch delay (15s quick / 2m long) |
 | `/thinking` | Toggle visibility of model thinking/reasoning |
 | `/status` | Show session info (engine, effort, mode, idle time) |
+
+`/tg_goal` is a wrapper-local prompt steering command. When the active engine is
+Codex, raw `/goal ...` messages are reserved for Codex native goal mode.
 
 ## Architecture
 

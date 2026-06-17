@@ -14,10 +14,10 @@ describe("Telegram command menu", () => {
     expect(modelCommand?.description).toContain("Codex");
   });
 
-  test("includes the goal command", () => {
-    const goalCommand = BOT_COMMANDS.find((command) => command.command === "goal");
+  test("includes the local TG goal command", () => {
+    const goalCommand = BOT_COMMANDS.find((command) => command.command === "tg_goal");
 
     expect(goalCommand).toBeDefined();
-    expect(goalCommand?.description).toContain("goal");
+    expect(goalCommand?.description).toContain("TG goal");
   });
 });
